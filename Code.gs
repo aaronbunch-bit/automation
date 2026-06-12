@@ -33,7 +33,8 @@ var CONFIG_KEYS = {
   senderName: 'EMAIL_SENDER_NAME',
   emailSubjectPrefix: 'EMAIL_SUBJECT_PREFIX',
   dryRun: 'DRY_RUN',
-  sendEmails: 'SEND_EMAILS'
+  sendEmails: 'SEND_EMAILS',
+  testEmailRecipients: 'TEST_EMAIL_RECIPIENTS'
 };
 
 var DEFAULT_FIELD_MAP = {
@@ -96,7 +97,8 @@ var EXCEPTION_HEADERS = [
   'Score',
   'Required Follow-up Action',
   'Manager Email Sent',
-  'Manager Email Sent At'
+  'Manager Email Sent At',
+  'Test Sent'
 ];
 
 /**
@@ -106,6 +108,7 @@ function onOpen() {
   SpreadsheetApp.getUi()
     .createMenu('ReflexAI Reporting')
     .addItem('Run report from CSV dump now', 'runWeeklySimulationExceptionReport')
+    .addItem('Test email batches to Aaron/Robert', 'sendTestManagerExceptionEmails')
     .addItem('Email managers current exceptions', 'sendManagerExceptionEmails')
     .addItem('Validate configuration', 'validateConfiguration')
     .addItem('Install weekly trigger', 'installWeeklyTrigger')
@@ -278,6 +281,7 @@ function getConfig_(options) {
     passingScorePercent: passingScore,
     senderName: props.getProperty(CONFIG_KEYS.senderName) || 'ReflexAI Simulation Reporting',
     emailSubjectPrefix: props.getProperty(CONFIG_KEYS.emailSubjectPrefix) || 'ReflexAI weekly simulation follow-up',
+    testEmailRecipients: splitCsv_(props.getProperty(CONFIG_KEYS.testEmailRecipients) || 'aaron.bunch@varsitytutors.com,robert.sorrell@varsitytutors.com'),
     dryRun: toBoolean_(props.getProperty(CONFIG_KEYS.dryRun), false),
     sendEmails: toBoolean_(props.getProperty(CONFIG_KEYS.sendEmails), false),
     skipValidation: options && options.skipValidation
@@ -559,6 +563,7 @@ function writeExceptionRows_(config, exceptions) {
       row.score,
       row.action,
       '',
+      '',
       ''
     ];
   });
@@ -590,6 +595,18 @@ function writeRunLog_(config, reportRunAt, recordsProcessed, exceptionsFound) {
  * not already been marked sent, then stamps sent status and sent date.
  */
 function sendManagerExceptionEmails() {
+  sendManagerExceptionEmails_(false);
+}
+
+/**
+ * Menu-triggered test sender. Sends the same manager batches to the test
+ * recipients instead of managers and stamps Test Sent = Y.
+ */
+function sendTestManagerExceptionEmails() {
+  sendManagerExceptionEmails_(true);
+}
+
+function sendManagerExceptionEmails_(testMode) {
   var config = getConfig_({ skipValidation: true });
   var spreadsheet = getSpreadsheet_(config);
   var sheet = spreadsheet.getSheetByName(EXCEPTION_SHEET_NAME);
@@ -606,7 +623,7 @@ function sendManagerExceptionEmails() {
   });
   var columnIndex = buildColumnIndex_(headers);
 
-  var requiredColumns = ['Representative', 'Representative Email', 'Manager', 'Manager Email', 'Journey', 'Simulation', 'Completion Status', 'Score', 'Required Follow-up Action', 'Manager Email Sent', 'Manager Email Sent At'];
+  var requiredColumns = ['Representative', 'Representative Email', 'Manager', 'Manager Email', 'Journey', 'Simulation', 'Completion Status', 'Score', 'Required Follow-up Action', 'Manager Email Sent', 'Manager Email Sent At', 'Test Sent'];
   var missingColumns = requiredColumns.filter(function(header) {
     return columnIndex[header] === undefined;
   });
@@ -615,13 +632,32 @@ function sendManagerExceptionEmails() {
   }
 
   var grouped = {};
+  var skippedAlreadyManagerSent = 0;
+  var skippedAlreadyTestSent = 0;
+  var skippedNoManagerEmail = 0;
   values.slice(1).forEach(function(row, zeroBasedOffset) {
     var sheetRowNumber = zeroBasedOffset + 2;
     var managerEmail = String(row[columnIndex['Manager Email']] || '').trim().toLowerCase();
     var action = String(row[columnIndex['Required Follow-up Action']] || '').trim();
     var sentStatus = String(row[columnIndex['Manager Email Sent']] || '').trim().toLowerCase();
+    var testSentStatus = String(row[columnIndex['Test Sent']] || '').trim().toLowerCase();
 
-    if (!managerEmail || !action || sentStatus === 'yes') {
+    if (!action) {
+      return;
+    }
+
+    if (sentStatus === 'yes') {
+      skippedAlreadyManagerSent++;
+      return;
+    }
+
+    if (testMode && testSentStatus === 'y') {
+      skippedAlreadyTestSent++;
+      return;
+    }
+
+    if (!managerEmail) {
+      skippedNoManagerEmail++;
       return;
     }
 
@@ -646,7 +682,12 @@ function sendManagerExceptionEmails() {
 
   var managerEmails = Object.keys(grouped);
   if (!managerEmails.length) {
-    SpreadsheetApp.getUi().alert('No unsent manager notifications found.');
+    SpreadsheetApp.getUi().alert(
+      'No unsent ' + (testMode ? 'test ' : '') + 'manager notifications found.\n\n' +
+      'Already manager-sent rows skipped: ' + skippedAlreadyManagerSent + '\n' +
+      (testMode ? 'Already test-sent rows skipped: ' + skippedAlreadyTestSent + '\n' : '') +
+      'Rows missing manager email: ' + skippedNoManagerEmail
+    );
     return;
   }
 
@@ -656,12 +697,13 @@ function sendManagerExceptionEmails() {
 
   managerEmails.forEach(function(managerEmail) {
     var batch = grouped[managerEmail];
-    var subject = 'ReflexAI weekly simulation follow-up';
-    var body = buildManagerBatchEmailBody_(batch.managerName, batch.rows);
-    var htmlBody = buildManagerBatchEmailHtml_(batch.managerName, batch.rows);
+    var recipients = testMode ? config.testEmailRecipients.join(',') : managerEmail;
+    var subject = (testMode ? '[TEST] ' : '') + 'ReflexAI weekly simulation follow-up';
+    var body = buildManagerBatchEmailBody_(batch.managerName, batch.rows, testMode, managerEmail);
+    var htmlBody = buildManagerBatchEmailHtml_(batch.managerName, batch.rows, testMode, managerEmail);
 
     MailApp.sendEmail({
-      to: managerEmail,
+      to: recipients,
       subject: subject,
       body: body,
       htmlBody: htmlBody,
@@ -672,15 +714,26 @@ function sendManagerExceptionEmails() {
     rowCount += batch.rows.length;
 
     batch.rows.forEach(function(item) {
-      sheet.getRange(item.sheetRowNumber, columnIndex['Manager Email Sent'] + 1).setValue('Yes');
-      sheet.getRange(item.sheetRowNumber, columnIndex['Manager Email Sent At'] + 1).setValue(sentAt);
+      if (testMode) {
+        sheet.getRange(item.sheetRowNumber, columnIndex['Test Sent'] + 1).setValue('Y');
+      } else {
+        sheet.getRange(item.sheetRowNumber, columnIndex['Manager Email Sent'] + 1).setValue('Yes');
+        sheet.getRange(item.sheetRowNumber, columnIndex['Manager Email Sent At'] + 1).setValue(sentAt);
+      }
     });
   });
 
-  sheet.getRange(2, columnIndex['Manager Email Sent At'] + 1, Math.max(sheet.getLastRow() - 1, 1), 1).setNumberFormat('m/d/yyyy h:mm AM/PM');
+  if (!testMode) {
+    sheet.getRange(2, columnIndex['Manager Email Sent At'] + 1, Math.max(sheet.getLastRow() - 1, 1), 1).setNumberFormat('m/d/yyyy h:mm AM/PM');
+  }
 
   SpreadsheetApp.getUi().alert(
-    'Manager emails sent.\n\nManagers emailed: ' + sentCount + '\nException rows marked sent: ' + rowCount
+    (testMode ? 'Test manager emails sent.\n\nTest recipients: ' + config.testEmailRecipients.join(', ') : 'Manager emails sent.') +
+    '\n\nManager batches emailed: ' + sentCount +
+    '\nException rows marked ' + (testMode ? 'test sent' : 'manager sent') + ': ' + rowCount +
+    '\nAlready manager-sent rows skipped: ' + skippedAlreadyManagerSent +
+    (testMode ? '\nAlready test-sent rows skipped: ' + skippedAlreadyTestSent : '') +
+    '\nRows missing manager email: ' + skippedNoManagerEmail
   );
 }
 
@@ -706,8 +759,13 @@ function buildColumnIndex_(headers) {
   return index;
 }
 
-function buildManagerBatchEmailBody_(managerName, rows) {
+function buildManagerBatchEmailBody_(managerName, rows, testMode, intendedManagerEmail) {
   var lines = [];
+  if (testMode) {
+    lines.push('TEST MODE - This batch would have gone to: ' + intendedManagerEmail);
+    lines.push('');
+  }
+
   lines.push('Hi' + (managerName ? ' ' + managerName : '') + ',');
   lines.push('');
   lines.push('Below are ReflexAI simulation follow-up items for your team.');
@@ -735,7 +793,7 @@ function buildManagerBatchEmailBody_(managerName, rows) {
   return lines.join('\n');
 }
 
-function buildManagerBatchEmailHtml_(managerName, rows) {
+function buildManagerBatchEmailHtml_(managerName, rows, testMode, intendedManagerEmail) {
   var tableRows = rows.map(function(row) {
     return '<tr>' +
       '<td>' + escapeHtml_(row.repName) + '</td>' +
@@ -747,7 +805,8 @@ function buildManagerBatchEmailHtml_(managerName, rows) {
       '</tr>';
   }).join('');
 
-  return '<p>Hi' + (managerName ? ' ' + escapeHtml_(managerName) : '') + ',</p>' +
+  return (testMode ? '<p><strong>TEST MODE</strong> - This batch would have gone to: ' + escapeHtml_(intendedManagerEmail) + '</p>' : '') +
+    '<p>Hi' + (managerName ? ' ' + escapeHtml_(managerName) : '') + ',</p>' +
     '<p>Below are ReflexAI simulation follow-up items for your team. Only not-started, in-progress, or below-80% simulations are included.</p>' +
     '<table border="1" cellpadding="6" cellspacing="0">' +
     '<thead><tr><th>Representative</th><th>Journey</th><th>Simulation</th><th>Status</th><th>Score</th><th>Follow-up Action</th></tr></thead>' +
