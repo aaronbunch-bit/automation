@@ -9,6 +9,7 @@ var DEFAULT_JOURNEY_NAME = 'High School Year Round Workshops - Jun';
 
 var COMPLETE_SIMULATION_ACTION = 'Ask representative to complete this simulation and schedule time via Assembled for representative to complete the simulation adhering to capacity constraints.';
 var RETAKE_SIMULATION_ACTION = 'Ask representative to retake this simulation and coach on missed skills.';
+var REFLEXAI_PLATFORM_RESOURCE_URL = 'https://drive.google.com/file/d/18X5z6iRGRk-fKY4bAvIxswwys3ne2z3r/view';
 
 var TEST_EMAIL_RECIPIENTS = [
   'aaron.bunch@varsitytutors.com',
@@ -346,8 +347,9 @@ function sendSeniorLeadershipRecap_(recipients, testMode) {
   }
 
   var managerRoster = buildManagerRoster_(spreadsheet);
-  var recap = buildSeniorLeadershipRecap_(csvRows, managerRoster);
-  var subject = (testMode ? '[TEST] ' : '') + getCurrentMonthName_() + ' ReflexAI Supergroup Recap';
+  var runSettings = getRunSettings_(spreadsheet);
+  var recap = buildSeniorLeadershipRecap_(csvRows, managerRoster, runSettings);
+  var subject = (testMode ? '[TEST] ' : '') + getCurrentMonthName_() + ' ' + recap.supergroupName + ' ReflexAI Supergroup Recap';
 
   MailApp.sendEmail({
     to: recipients.join(','),
@@ -364,10 +366,11 @@ function sendSeniorLeadershipRecap_(recipients, testMode) {
   );
 }
 
-function buildSeniorLeadershipRecap_(csvRows, managerRoster) {
+function buildSeniorLeadershipRecap_(csvRows, managerRoster, runSettings) {
   var recap = {
     generatedAt: new Date(),
     totalRows: csvRows.length,
+    supergroupName: getCurrentSupergroupName_(csvRows, runSettings || {}),
     counts: {
       notStarted: 0,
       completedBelow: 0,
@@ -388,7 +391,9 @@ function buildSeniorLeadershipRecap_(csvRows, managerRoster) {
       managerRoster[String(userEmail).toLowerCase().trim()] ||
       managerRoster[String(userName).toLowerCase().trim()] ||
       {};
-    var managerKey = String(managerInfo.managerEmail || managerInfo.managerName || 'Unassigned').toLowerCase().trim();
+    var managerName = normalizeManagerDisplayName_(managerInfo.managerName || 'Unassigned');
+    var managerEmail = managerInfo.managerEmail || '';
+    var managerKey = getManagerRecapKey_(managerName, managerEmail);
 
     if (!managerKey) managerKey = 'unassigned';
 
@@ -396,13 +401,17 @@ function buildSeniorLeadershipRecap_(csvRows, managerRoster) {
 
     if (!recap.byManager[managerKey]) {
       recap.byManager[managerKey] = {
-        managerName: managerInfo.managerName || 'Unassigned',
-        managerEmail: managerInfo.managerEmail || '',
+        managerName: managerName,
+        managerEmail: managerEmail,
         notStarted: 0,
         completedBelow: 0,
         completedAbove: 0,
         total: 0
       };
+    }
+
+    if (!recap.byManager[managerKey].managerEmail && managerEmail) {
+      recap.byManager[managerKey].managerEmail = managerEmail;
     }
 
     recap.byManager[managerKey][category]++;
@@ -456,6 +465,77 @@ function classifySimulationOutcome_(status, score) {
   return 'notStarted';
 }
 
+function getCurrentSupergroupName_(csvRows, runSettings) {
+  var journeyName = getMostCommonJourneyName_(csvRows) ||
+    (runSettings && runSettings.currentJourneyName) ||
+    DEFAULT_JOURNEY_NAME;
+
+  return deriveSupergroupName_(journeyName);
+}
+
+function getMostCommonJourneyName_(csvRows) {
+  var counts = {};
+  var labels = {};
+
+  csvRows.forEach(function(row) {
+    var journeyName = getFirstNonBlankValue_(row, [
+      'Journey',
+      'Journey Name',
+      'Journey Title',
+      'Workshop',
+      'Workshop Name',
+      'Course',
+      'Course Name'
+    ]);
+    if (!journeyName) return;
+
+    var key = String(journeyName).toLowerCase().trim();
+    counts[key] = (counts[key] || 0) + 1;
+    labels[key] = journeyName;
+  });
+
+  var bestKey = '';
+  Object.keys(counts).forEach(function(key) {
+    if (!bestKey || counts[key] > counts[bestKey]) {
+      bestKey = key;
+    }
+  });
+
+  return bestKey ? labels[bestKey] : '';
+}
+
+function deriveSupergroupName_(journeyName) {
+  var value = String(journeyName || '').trim();
+  if (!value) return 'Supergroup';
+
+  value = value.replace(/\s*[-–]\s*(jan|january|feb|february|mar|march|apr|april|may|jun|june|jul|july|aug|august|sep|sept|september|oct|october|nov|november|dec|december)\s*\d*$/i, '');
+  value = value.replace(/\s+Year Round Workshops.*$/i, '');
+  value = value.replace(/\s+Workshops.*$/i, '');
+  value = value.trim();
+
+  return value || String(journeyName || '').trim() || 'Supergroup';
+}
+
+function normalizeManagerDisplayName_(managerName) {
+  var value = String(managerName || '').trim();
+  var normalized = value.toLowerCase().replace(/\s+/g, ' ');
+
+  if (normalized === 'johnpaul riordan' || normalized === 'john riordan') {
+    return 'John Riordan';
+  }
+
+  return value || 'Unassigned';
+}
+
+function getManagerRecapKey_(managerName, managerEmail) {
+  var normalizedName = normalizeManagerDisplayName_(managerName);
+  if (normalizedName === 'John Riordan') {
+    return 'manager:john-riordan';
+  }
+
+  return String(managerEmail || normalizedName || 'Unassigned').toLowerCase().trim();
+}
+
 function buildSeniorLeadershipRecapText_(recap, testMode) {
   var lines = [];
 
@@ -465,7 +545,7 @@ function buildSeniorLeadershipRecapText_(recap, testMode) {
   }
 
   lines.push('ReflexAI senior leadership recap');
-  lines.push('Rows included: ' + recap.totalRows);
+  lines.push('Supergroup: ' + recap.supergroupName);
   lines.push('');
   lines.push('Overall simulation counts');
   lines.push('Not Started / In Progress: ' + recap.counts.notStarted);
@@ -498,7 +578,7 @@ function buildSeniorLeadershipRecapText_(recap, testMode) {
 function buildSeniorLeadershipRecapHtml_(recap, testMode) {
   return (testMode ? '<p><strong>TEST MODE</strong> - Senior leadership recap preview.</p>' : '') +
     '<h2>ReflexAI Senior Leadership Recap</h2>' +
-    '<p><strong>Rows included:</strong> ' + recap.totalRows + '</p>' +
+    '<p><strong>Supergroup:</strong> ' + escapeHtml_(recap.supergroupName) + '</p>' +
     buildLeadershipCountsTable_(recap) +
     buildSimulationAverageTable_(recap.simulationAverages) +
     buildManagerRecapTable_(recap.managerRows);
@@ -811,6 +891,7 @@ function buildManagerEmailBody_(managerName, rows, testMode, intendedManagerEmai
   lines.push('');
   lines.push('Below are ReflexAI simulation follow-up items for your team.');
   lines.push('Only not-started, in-progress, or below-80% simulations are included.');
+  lines.push('Please use this video as a resource for navigating the ReflexAI Platform for further insights: ' + REFLEXAI_PLATFORM_RESOURCE_URL);
   lines.push('');
 
   appendPlainTextSection_(lines, 'BELOW 80% COMPLETED SIMULATIONS - PRIORITY', sections.lowScoreGroups);
@@ -832,6 +913,7 @@ function buildManagerEmailHtml_(managerName, rows, testMode, intendedManagerEmai
       : '') +
     '<p>Hi' + (managerName ? ' ' + escapeHtml_(managerName) : '') + ',</p>' +
     '<p>Below are ReflexAI simulation follow-up items for your team. Only not-started, in-progress, or below-80% simulations are included.</p>' +
+    '<p>Please use <a href="' + REFLEXAI_PLATFORM_RESOURCE_URL + '">this video</a> as a resource for navigating the ReflexAI Platform for further insights.</p>' +
     buildHtmlSection_('Below 80% Completed Simulations - Priority', sections.lowScoreGroups, true) +
     buildHtmlSection_('Not Started / In Progress Simulations', sections.incompleteGroups, false) +
     '<p>Thank you.</p>';
