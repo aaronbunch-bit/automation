@@ -94,7 +94,9 @@ var EXCEPTION_HEADERS = [
   'Simulation',
   'Completion Status',
   'Score',
-  'Required Follow-up Action'
+  'Required Follow-up Action',
+  'Manager Email Sent',
+  'Manager Email Sent At'
 ];
 
 /**
@@ -104,6 +106,7 @@ function onOpen() {
   SpreadsheetApp.getUi()
     .createMenu('ReflexAI Reporting')
     .addItem('Run report from CSV dump now', 'runWeeklySimulationExceptionReport')
+    .addItem('Email managers current exceptions', 'sendManagerExceptionEmails')
     .addItem('Validate configuration', 'validateConfiguration')
     .addItem('Install weekly trigger', 'installWeeklyTrigger')
     .addItem('Create setup sheets', 'createSetupSheets')
@@ -127,7 +130,7 @@ function runWeeklySimulationExceptionReport() {
   writeRunLog_(config, reportRunAt, records.length, exceptions.length);
 
   if (config.sendEmails) {
-    sendExceptionEmails_(exceptions, config, reportRunAt);
+    sendManagerExceptionEmails();
   }
 
   return {
@@ -554,7 +557,9 @@ function writeExceptionRows_(config, exceptions) {
       row.simulationName,
       row.status,
       row.score,
-      row.action
+      row.action,
+      '',
+      ''
     ];
   });
 
@@ -578,6 +583,177 @@ function writeRunLog_(config, reportRunAt, recordsProcessed, exceptionsFound) {
   }
 
   sheet.appendRow([reportRunAt, recordsProcessed, exceptionsFound, config.sendEmails, config.dryRun]);
+}
+
+/**
+ * Menu-triggered sender. Sends one batched email per manager for rows that have
+ * not already been marked sent, then stamps sent status and sent date.
+ */
+function sendManagerExceptionEmails() {
+  var config = getConfig_({ skipValidation: true });
+  var spreadsheet = getSpreadsheet_(config);
+  var sheet = spreadsheet.getSheetByName(EXCEPTION_SHEET_NAME);
+  if (!sheet || sheet.getLastRow() < 2) {
+    SpreadsheetApp.getUi().alert('No exception rows found. Run the report first.');
+    return;
+  }
+
+  ensureExceptionTrackingHeaders_(sheet);
+
+  var values = sheet.getDataRange().getValues();
+  var headers = values[0].map(function(header) {
+    return String(header).trim();
+  });
+  var columnIndex = buildColumnIndex_(headers);
+
+  var requiredColumns = ['Representative', 'Representative Email', 'Manager', 'Manager Email', 'Journey', 'Simulation', 'Completion Status', 'Score', 'Required Follow-up Action', 'Manager Email Sent', 'Manager Email Sent At'];
+  var missingColumns = requiredColumns.filter(function(header) {
+    return columnIndex[header] === undefined;
+  });
+  if (missingColumns.length) {
+    throw new Error('Missing required Simulation Exceptions columns: ' + missingColumns.join(', '));
+  }
+
+  var grouped = {};
+  values.slice(1).forEach(function(row, zeroBasedOffset) {
+    var sheetRowNumber = zeroBasedOffset + 2;
+    var managerEmail = String(row[columnIndex['Manager Email']] || '').trim().toLowerCase();
+    var action = String(row[columnIndex['Required Follow-up Action']] || '').trim();
+    var sentStatus = String(row[columnIndex['Manager Email Sent']] || '').trim().toLowerCase();
+
+    if (!managerEmail || !action || sentStatus === 'yes') {
+      return;
+    }
+
+    if (!grouped[managerEmail]) {
+      grouped[managerEmail] = {
+        managerName: row[columnIndex['Manager']] || '',
+        rows: []
+      };
+    }
+
+    grouped[managerEmail].rows.push({
+      sheetRowNumber: sheetRowNumber,
+      repName: row[columnIndex['Representative']] || '',
+      repEmail: row[columnIndex['Representative Email']] || '',
+      journeyName: row[columnIndex['Journey']] || '',
+      simulationName: row[columnIndex['Simulation']] || '',
+      status: row[columnIndex['Completion Status']] || '',
+      score: row[columnIndex['Score']],
+      action: action
+    });
+  });
+
+  var managerEmails = Object.keys(grouped);
+  if (!managerEmails.length) {
+    SpreadsheetApp.getUi().alert('No unsent manager notifications found.');
+    return;
+  }
+
+  var sentAt = new Date();
+  var sentCount = 0;
+  var rowCount = 0;
+
+  managerEmails.forEach(function(managerEmail) {
+    var batch = grouped[managerEmail];
+    var subject = 'ReflexAI weekly simulation follow-up';
+    var body = buildManagerBatchEmailBody_(batch.managerName, batch.rows);
+    var htmlBody = buildManagerBatchEmailHtml_(batch.managerName, batch.rows);
+
+    MailApp.sendEmail({
+      to: managerEmail,
+      subject: subject,
+      body: body,
+      htmlBody: htmlBody,
+      name: config.senderName
+    });
+
+    sentCount++;
+    rowCount += batch.rows.length;
+
+    batch.rows.forEach(function(item) {
+      sheet.getRange(item.sheetRowNumber, columnIndex['Manager Email Sent'] + 1).setValue('Yes');
+      sheet.getRange(item.sheetRowNumber, columnIndex['Manager Email Sent At'] + 1).setValue(sentAt);
+    });
+  });
+
+  sheet.getRange(2, columnIndex['Manager Email Sent At'] + 1, Math.max(sheet.getLastRow() - 1, 1), 1).setNumberFormat('m/d/yyyy h:mm AM/PM');
+
+  SpreadsheetApp.getUi().alert(
+    'Manager emails sent.\n\nManagers emailed: ' + sentCount + '\nException rows marked sent: ' + rowCount
+  );
+}
+
+function ensureExceptionTrackingHeaders_(sheet) {
+  var headers = sheet.getRange(1, 1, 1, Math.max(sheet.getLastColumn(), EXCEPTION_HEADERS.length)).getValues()[0];
+  var headerNames = headers.map(function(header) {
+    return String(header).trim();
+  });
+
+  EXCEPTION_HEADERS.forEach(function(header) {
+    if (headerNames.indexOf(header) !== -1) return;
+    var nextColumn = sheet.getLastColumn() + 1;
+    sheet.getRange(1, nextColumn).setValue(header);
+    headerNames.push(header);
+  });
+}
+
+function buildColumnIndex_(headers) {
+  var index = {};
+  headers.forEach(function(header, position) {
+    if (header) index[header] = position;
+  });
+  return index;
+}
+
+function buildManagerBatchEmailBody_(managerName, rows) {
+  var lines = [];
+  lines.push('Hi' + (managerName ? ' ' + managerName : '') + ',');
+  lines.push('');
+  lines.push('Below are ReflexAI simulation follow-up items for your team.');
+  lines.push('Only not-started, in-progress, or below-80% simulations are included.');
+  lines.push('');
+
+  rows.forEach(function(row) {
+    lines.push(
+      row.repName +
+      ' | ' +
+      row.journeyName +
+      ' | ' +
+      row.simulationName +
+      ' | ' +
+      row.status +
+      ' | ' +
+      formatScore_(row.score) +
+      ' | ' +
+      row.action
+    );
+  });
+
+  lines.push('');
+  lines.push('Thank you.');
+  return lines.join('\n');
+}
+
+function buildManagerBatchEmailHtml_(managerName, rows) {
+  var tableRows = rows.map(function(row) {
+    return '<tr>' +
+      '<td>' + escapeHtml_(row.repName) + '</td>' +
+      '<td>' + escapeHtml_(row.journeyName) + '</td>' +
+      '<td>' + escapeHtml_(row.simulationName) + '</td>' +
+      '<td>' + escapeHtml_(row.status) + '</td>' +
+      '<td>' + escapeHtml_(formatScore_(row.score)) + '</td>' +
+      '<td>' + escapeHtml_(row.action) + '</td>' +
+      '</tr>';
+  }).join('');
+
+  return '<p>Hi' + (managerName ? ' ' + escapeHtml_(managerName) : '') + ',</p>' +
+    '<p>Below are ReflexAI simulation follow-up items for your team. Only not-started, in-progress, or below-80% simulations are included.</p>' +
+    '<table border="1" cellpadding="6" cellspacing="0">' +
+    '<thead><tr><th>Representative</th><th>Journey</th><th>Simulation</th><th>Status</th><th>Score</th><th>Follow-up Action</th></tr></thead>' +
+    '<tbody>' + tableRows + '</tbody>' +
+    '</table>' +
+    '<p>Thank you.</p>';
 }
 
 function sendExceptionEmails_(exceptions, config, reportRunAt) {

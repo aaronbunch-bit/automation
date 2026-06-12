@@ -36,9 +36,16 @@ The script creates these tabs:
 4. Replace the old CSV data with the new CSV data.
 5. Run `ReflexAI Reporting > Run report from CSV dump now`.
 6. Review `Simulation Exceptions`.
+7. Run `ReflexAI Reporting > Email managers current exceptions` when you are
+   ready to email managers.
 
 If email sending is turned on, Managers and Team Leads get only their own
 exceptions.
+
+The email step sends one batched email per manager, not one email per row. After
+each manager email sends successfully, the script marks the related exception
+rows with `Manager Email Sent = Yes` and a `Manager Email Sent At` timestamp.
+Rows already marked `Yes` are skipped to prevent duplicate emails.
 
 ## Manager Roster format
 
