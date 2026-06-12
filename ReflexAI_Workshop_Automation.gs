@@ -1,4 +1,5 @@
 var CSV_DUMP_SHEET_NAME = 'ReflexAI CSV Dump';
+var CSV_DUMP_SHEET_PREFIX = 'ReflexAI CSV - ';
 var LOOKER_MANAGER_LOOKUP_SHEET_NAME = 'Looker Manager Lookup';
 var NAME_MATCH_OVERRIDES_SHEET_NAME = 'Name Match Overrides';
 var MISSING_LOOKER_PAIRINGS_SHEET_NAME = 'Missing Looker Manager Pairing';
@@ -152,15 +153,15 @@ function setCurrentJourneyName() {
 
 function runWeeklySimulationExceptionReport() {
   var spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+  var runSettings = getRunSettings_(spreadsheet);
 
-  var csvRows = readSheetRows_(spreadsheet, CSV_DUMP_SHEET_NAME);
+  var csvRows = loadReflexAiCsvRows_(spreadsheet, runSettings);
   if (!csvRows.length) {
-    SpreadsheetApp.getUi().alert('No CSV data found. Import the ReflexAI CSV first.');
+    SpreadsheetApp.getUi().alert('No CSV data found. Import ReflexAI CSV data into "' + CSV_DUMP_SHEET_NAME + '" or tabs named "' + CSV_DUMP_SHEET_PREFIX + '[Journey Name]".');
     return;
   }
 
   var managerRoster = buildLookerManagerRoster_(spreadsheet);
-  var runSettings = getRunSettings_(spreadsheet);
   var exceptions = [];
   var missingLookerPairings = {};
 
@@ -399,15 +400,15 @@ function sendSeniorLeadershipRecap() {
 
 function sendSeniorLeadershipRecap_(recipients, testMode) {
   var spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
-  var csvRows = readSheetRows_(spreadsheet, CSV_DUMP_SHEET_NAME);
+  var runSettings = getRunSettings_(spreadsheet);
+  var csvRows = loadReflexAiCsvRows_(spreadsheet, runSettings);
 
   if (!csvRows.length) {
-    SpreadsheetApp.getUi().alert('No CSV data found. Import the ReflexAI CSV first.');
+    SpreadsheetApp.getUi().alert('No CSV data found. Import ReflexAI CSV data into "' + CSV_DUMP_SHEET_NAME + '" or tabs named "' + CSV_DUMP_SHEET_PREFIX + '[Journey Name]".');
     return;
   }
 
   var managerRoster = buildLookerManagerRoster_(spreadsheet);
-  var runSettings = getRunSettings_(spreadsheet);
   var recap = buildSeniorLeadershipRecap_(csvRows, managerRoster, runSettings);
   var subject = (testMode ? '[TEST] ' : '') + getCurrentMonthName_() + ' ' + recap.supergroupName + ' ReflexAI Supergroup Recap';
 
@@ -558,19 +559,22 @@ function classifySimulationOutcome_(status, score) {
 }
 
 function getCurrentSupergroupName_(csvRows, runSettings) {
-  var journeyName = getMostCommonJourneyName_(csvRows) ||
-    (runSettings && runSettings.currentJourneyName) ||
-    DEFAULT_JOURNEY_NAME;
+  var supergroupNames = getDistinctSupergroupNames_(csvRows);
+  if (supergroupNames.length > 1) {
+    return 'All Supergroups';
+  }
+  if (supergroupNames.length === 1) {
+    return supergroupNames[0];
+  }
 
-  return deriveSupergroupName_(journeyName);
+  return deriveSupergroupName_((runSettings && runSettings.currentJourneyName) || DEFAULT_JOURNEY_NAME);
 }
 
-function getMostCommonJourneyName_(csvRows) {
-  var counts = {};
-  var labels = {};
+function getDistinctSupergroupNames_(csvRows) {
+  var names = {};
 
   csvRows.forEach(function(row) {
-    var journeyName = getFirstNonBlankValue_(row, [
+    var journeyName = String(row.__journeyName || '').trim() || getFirstNonBlankValue_(row, [
       'Journey',
       'Journey Name',
       'Journey Title',
@@ -581,19 +585,13 @@ function getMostCommonJourneyName_(csvRows) {
     ]);
     if (!journeyName) return;
 
-    var key = String(journeyName).toLowerCase().trim();
-    counts[key] = (counts[key] || 0) + 1;
-    labels[key] = journeyName;
+    var supergroupName = deriveSupergroupName_(journeyName);
+    names[supergroupName.toLowerCase()] = supergroupName;
   });
 
-  var bestKey = '';
-  Object.keys(counts).forEach(function(key) {
-    if (!bestKey || counts[key] > counts[bestKey]) {
-      bestKey = key;
-    }
-  });
-
-  return bestKey ? labels[bestKey] : '';
+  return Object.keys(names).map(function(key) {
+    return names[key];
+  }).sort();
 }
 
 function deriveSupergroupName_(journeyName) {
@@ -643,6 +641,103 @@ function firstInitialLastKey_(value) {
   var tokens = personNameTokens_(value);
   if (tokens.length < 2) return '';
   return tokens[0].charAt(0) + '|' + tokens[tokens.length - 1];
+}
+
+function allFirstSurnameKeys_(value) {
+  var tokens = personNameTokens_(value);
+  if (tokens.length < 2) return [];
+
+  var keys = {};
+  tokens.slice(1).forEach(function(token) {
+    keys[tokens[0] + '|' + token] = true;
+  });
+
+  return Object.keys(keys);
+}
+
+function allFirstInitialSurnameKeys_(value) {
+  var tokens = personNameTokens_(value);
+  if (tokens.length < 2) return [];
+
+  var keys = {};
+  tokens.slice(1).forEach(function(token) {
+    keys[tokens[0].charAt(0) + '|' + token] = true;
+  });
+
+  return Object.keys(keys);
+}
+
+function findUniqueFuzzyNameMatch_(managerRoster, repName) {
+  var requestedTokens = personNameTokens_(repName);
+  var candidates = managerRoster.__candidates || [];
+
+  if (requestedTokens.length < 2) {
+    return null;
+  }
+
+  var requestedFirst = requestedTokens[0];
+  var requestedLast = requestedTokens[requestedTokens.length - 1];
+  var matches = [];
+
+  candidates.forEach(function(candidate) {
+    var candidateTokens = candidate.tokens || [];
+    if (candidateTokens.length < 2 || candidateTokens[0] !== requestedFirst) {
+      return;
+    }
+
+    var bestDistance = candidateTokens.slice(1).reduce(function(best, token) {
+      return Math.min(best, editDistance_(requestedLast, token));
+    }, 999);
+
+    if (bestDistance <= 2) {
+      matches.push({
+        distance: bestDistance,
+        managerInfo: candidate.managerInfo
+      });
+    }
+  });
+
+  if (!matches.length) {
+    return null;
+  }
+
+  var bestDistance = matches.reduce(function(best, match) {
+    return Math.min(best, match.distance);
+  }, 999);
+  var bestMatches = matches.filter(function(match) {
+    return match.distance === bestDistance;
+  });
+  var uniqueCandidates = uniqueManagerCandidates_(bestMatches.map(function(match) {
+    return match.managerInfo;
+  }));
+
+  return uniqueCandidates.length === 1 ? uniqueCandidates[0] : null;
+}
+
+function editDistance_(left, right) {
+  left = String(left || '');
+  right = String(right || '');
+
+  var matrix = [];
+  for (var i = 0; i <= left.length; i++) {
+    matrix[i] = [i];
+  }
+  for (var j = 0; j <= right.length; j++) {
+    matrix[0][j] = j;
+  }
+
+  for (i = 1; i <= left.length; i++) {
+    for (j = 1; j <= right.length; j++) {
+      var cost = left.charAt(i - 1) === right.charAt(j - 1) ? 0 : 1;
+      matrix[i][j] = Math.min(
+        matrix[i - 1][j] + 1,
+        matrix[i][j - 1] + 1,
+        matrix[i - 1][j - 1] + cost
+      );
+    }
+  }
+
+  return matrix[left.length][right.length];
 }
 
 function isJohnRiordanName_(value) {
@@ -762,6 +857,7 @@ function buildManagerRecapTable_(managerRows) {
 function buildLookerManagerRoster_(spreadsheet) {
   var rows = readSheetRows_(spreadsheet, LOOKER_MANAGER_LOOKUP_SHEET_NAME);
   var roster = {};
+  roster.__candidates = [];
   var exactByName = {};
   var firstLastCandidates = {};
   var firstInitialLastCandidates = {};
@@ -802,8 +898,17 @@ function buildLookerManagerRoster_(spreadsheet) {
     if (normalizedRepName) {
       roster[normalizedRepName] = managerInfo;
       exactByName[normalizedRepName] = managerInfo;
-      addCandidate_(firstLastCandidates, firstLastKey_(repName), managerInfo);
-      addCandidate_(firstInitialLastCandidates, firstInitialLastKey_(repName), managerInfo);
+      allFirstSurnameKeys_(repName).forEach(function(key) {
+        addCandidate_(firstLastCandidates, key, managerInfo);
+      });
+      allFirstInitialSurnameKeys_(repName).forEach(function(key) {
+        addCandidate_(firstInitialLastCandidates, key, managerInfo);
+      });
+      roster.__candidates.push({
+        repName: repName,
+        tokens: personNameTokens_(repName),
+        managerInfo: managerInfo
+      });
     }
 
     repEmail = String(repEmail || '').toLowerCase().trim();
@@ -830,6 +935,7 @@ function getManagerInfoForRep_(managerRoster, repEmail, repName) {
     managerRoster[exactNameKey] ||
     managerRoster['firstlast:' + firstLast] ||
     managerRoster['initiallast:' + initialLast] ||
+    findUniqueFuzzyNameMatch_(managerRoster, repName) ||
     {};
 }
 
@@ -949,6 +1055,10 @@ function setRunSetting_(spreadsheet, settingName, settingValue) {
 }
 
 function getJourneyNameForRow_(row, runSettings) {
+  if (String(row.__journeyName || '').trim()) {
+    return row.__journeyName;
+  }
+
   return getFirstNonBlankValue_(row, [
     'Journey',
     'Journey Name',
@@ -1338,6 +1448,63 @@ function scoreGradientColor_(scorePercent) {
 
 function readSheetRows_(spreadsheet, sheetName) {
   var sheet = spreadsheet.getSheetByName(sheetName);
+  if (!sheet) {
+    return [];
+  }
+
+  var values = sheet.getDataRange().getValues();
+  if (values.length < 2) {
+    return [];
+  }
+
+  var headers = values[0].map(function(header) {
+    return String(header).trim();
+  });
+
+  return values.slice(1)
+    .filter(function(row) {
+      return row.some(function(value) {
+        return value !== '';
+      });
+    })
+    .map(function(row) {
+      var record = {};
+
+      headers.forEach(function(header, index) {
+        record[header] = row[index];
+      });
+
+      return record;
+    });
+}
+
+function loadReflexAiCsvRows_(spreadsheet, runSettings) {
+  var rows = [];
+  var defaultJourneyName = runSettings.currentJourneyName || DEFAULT_JOURNEY_NAME;
+
+  rows = rows.concat(annotateRowsWithJourney_(readSheetRows_(spreadsheet, CSV_DUMP_SHEET_NAME), defaultJourneyName));
+
+  spreadsheet.getSheets().forEach(function(sheet) {
+    var sheetName = sheet.getName();
+    if (sheetName === CSV_DUMP_SHEET_NAME || sheetName.indexOf(CSV_DUMP_SHEET_PREFIX) !== 0) {
+      return;
+    }
+
+    var journeyName = sheetName.slice(CSV_DUMP_SHEET_PREFIX.length).trim() || defaultJourneyName;
+    rows = rows.concat(annotateRowsWithJourney_(readRowsFromSheet_(sheet), journeyName));
+  });
+
+  return rows;
+}
+
+function annotateRowsWithJourney_(rows, journeyName) {
+  return rows.map(function(row) {
+    row.__journeyName = getJourneyNameForRow_(row, { currentJourneyName: journeyName });
+    return row;
+  });
+}
+
+function readRowsFromSheet_(sheet) {
   if (!sheet) {
     return [];
   }
