@@ -16,6 +16,12 @@ The report only shows problems:
 
 The report does not list people who are already passing.
 
+## Single script file
+
+Use `ReflexAI_Workshop_Automation.gs` as the source of truth going forward.
+When updates are needed, this is the file that should be copied into Google Apps
+Script.
+
 ## Tabs in the Google Sheet
 
 The script creates these tabs:
@@ -57,21 +63,16 @@ emails.
 ## Manager Roster format
 
 The ReflexAI CSV you provided does not include manager or team lead emails, so
-the Sheet needs one simple roster tab.
+the Sheet uses your imported roster tab.
 
-Use these columns:
-
-```text
-Representative Email | Manager Name | Manager Email | Team Lead Name | Team Lead Email
-```
-
-Example:
+The script reads these roster columns:
 
 ```text
-jane.rep@example.com | Sam Manager | sam.manager@example.com | Taylor Lead | taylor.lead@example.com
+Email | Name | Manager | Senior
 ```
 
-This roster does not need to be replaced every week unless assignments change.
+It uses `Email` and `Name` to match ReflexAI representatives, `Manager` for the
+manager pairing, and `Senior` for the senior/team lead pairing.
 
 ## ReflexAI CSV columns currently supported
 
@@ -99,15 +100,14 @@ that column, which does not match the stated 80% business rule.
 
 1. Create a Google Sheet.
 2. Open **Extensions > Apps Script**.
-3. Paste `Code.gs` into the script editor.
-4. Add `appsscript.json` as the manifest.
+3. Paste the full contents of `ReflexAI_Workshop_Automation.gs` into the script
+   editor.
+4. Save.
 5. Run `createSetupSheets` once.
 6. Import the ReflexAI CSV into `ReflexAI CSV Dump`.
-7. Add manager/team lead emails in `Manager Roster`.
+7. Confirm the imported roster is in `Manager Roster`.
 8. Run `runWeeklySimulationExceptionReport`.
-
-Start with `SEND_EMAILS=false` so you can review the output first. Set
-`SEND_EMAILS=true` only after the report looks right.
+9. Run `sendTestManagerExceptionEmails` before real manager emails.
 
 ## Later API upgrade
 
