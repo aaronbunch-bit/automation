@@ -21,6 +21,14 @@ var TEST_EMAIL_RECIPIENTS = [
   'robert.sorrell@varsitytutors.com'
 ];
 
+var BULK_CSV_SHEET_NAMES = [
+  'ReflexAI CSV - High School',
+  'ReflexAI CSV - ELD',
+  'ReflexAI CSV - College',
+  'ReflexAI CSV - Adult Learning',
+  'ReflexAI CSV - Prof Certs'
+];
+
 var CSV_DUMP_HEADERS = [
   'User Name',
   'User Email',
@@ -89,6 +97,9 @@ function createSetupSheets() {
   var spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
 
   createSheetWithHeaders_(spreadsheet, CSV_DUMP_SHEET_NAME, CSV_DUMP_HEADERS);
+  BULK_CSV_SHEET_NAMES.forEach(function(sheetName) {
+    createSheetWithHeaders_(spreadsheet, sheetName, CSV_DUMP_HEADERS);
+  });
   createSheetWithHeaders_(spreadsheet, LOOKER_MANAGER_LOOKUP_SHEET_NAME, LOOKER_MANAGER_LOOKUP_HEADERS);
   createSheetWithHeaders_(spreadsheet, NAME_MATCH_OVERRIDES_SHEET_NAME, NAME_MATCH_OVERRIDES_HEADERS);
   createSheetWithHeaders_(spreadsheet, MISSING_LOOKER_PAIRINGS_SHEET_NAME, MISSING_LOOKER_PAIRINGS_HEADERS);
