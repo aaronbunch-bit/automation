@@ -634,6 +634,9 @@ function finalizeMetricBucket_(bucket) {
   bucket.notStartedPercent = bucket.total ? bucket.notStarted / bucket.total : 0;
   bucket.completedAboveAverageScore = bucket.completedAbove ? bucket.completedAboveScoreTotal / bucket.completedAbove : null;
   bucket.completedBelowAverageScore = bucket.completedBelow ? bucket.completedBelowScoreTotal / bucket.completedBelow : null;
+  bucket.completedAverageScore = (bucket.completedAbove + bucket.completedBelow)
+    ? (bucket.completedAboveScoreTotal + bucket.completedBelowScoreTotal) / (bucket.completedAbove + bucket.completedBelow)
+    : null;
   return bucket;
 }
 
@@ -665,8 +668,7 @@ function buildDirectorEmailText_(recap, testMode) {
   lines.push('');
   lines.push('Below is the ' + getCurrentMonthName_() + ' ReflexAI director recap thus far for ' + recap.supergroupName + '.');
   lines.push('');
-  appendDirectorTextSection_(lines, 'Company Overview', [recap.company]);
-  appendDirectorTextSection_(lines, 'Supergroup Breakdown', recap.supergroupRows);
+  appendDirectorTextSection_(lines, 'Supergroup Breakdown', recap.supergroupRows.concat([companySummaryRow_(recap.company)]));
   appendDirectorTextSection_(lines, 'Manager Breakdown', recap.managerRows);
 
   return lines.join('\n');
@@ -677,11 +679,10 @@ function appendDirectorTextSection_(lines, title, rows) {
   rows.forEach(function(row) {
     lines.push(
       (row.name || 'Company') +
-      ' | ' + COMPLETED_CLEARED_LABEL + ': ' + row.completedAbove + ' (' + formatDecimalPercent_(row.completedAbovePercent) + ')' +
-      ' | ' + COMPLETED_NOT_CLEARED_LABEL + ': ' + row.completedBelow + ' (' + formatDecimalPercent_(row.completedBelowPercent) + ')' +
-      ' | ' + NOT_STARTED_LABEL + ': ' + row.notStarted + ' (' + formatDecimalPercent_(row.notStartedPercent) + ')' +
-      ' | Cleared Avg: ' + formatScore_(row.completedAboveAverageScore) +
-      ' | Not Cleared Avg: ' + formatScore_(row.completedBelowAverageScore)
+      ' | ' + COMPLETED_CLEARED_LABEL + ': ' + formatCountPercent_(row.completedAbove, row.completedAbovePercent) +
+      ' | ' + COMPLETED_NOT_CLEARED_LABEL + ': ' + formatCountPercent_(row.completedBelow, row.completedBelowPercent) +
+      ' | ' + NOT_STARTED_LABEL + ': ' + formatCountPercent_(row.notStarted, row.notStartedPercent) +
+      ' | Average Completed Score: ' + formatScore_(row.completedAverageScore)
     );
   });
   lines.push('');
@@ -691,24 +692,20 @@ function buildDirectorEmailHtml_(recap, testMode) {
   return (testMode ? '<p><strong>TEST MODE</strong> - Director recap preview.</p>' : '') +
     '<p>Hi Directors,</p>' +
     '<p>Below is the ' + escapeHtml_(getCurrentMonthName_()) + ' ReflexAI director recap thus far for ' + escapeHtml_(recap.supergroupName) + '.</p>' +
-    buildDirectorTable_('Company Overview', [recap.company], false) +
-    buildDirectorTable_('Supergroup Breakdown', recap.supergroupRows, false) +
-    buildDirectorTable_('Manager Breakdown', recap.managerRows, true);
+    buildDirectorTable_('Supergroup Breakdown', recap.supergroupRows.concat([companySummaryRow_(recap.company)])) +
+    buildDirectorTable_('Manager Breakdown', recap.managerRows);
 }
 
-function buildDirectorTable_(title, rows, includeEmail) {
+function buildDirectorTable_(title, rows) {
   var tableRows = rows.map(function(row) {
-    return '<tr>' +
+    var rowStyle = row.isCompanySummary ? ' style="background-color:#d9ead3;font-weight:bold;"' : '';
+
+    return '<tr' + rowStyle + '>' +
       '<td>' + escapeHtml_(row.name || 'Company') + '</td>' +
-      (includeEmail ? '<td>' + escapeHtml_(row.managerEmail || '') + '</td>' : '') +
-      '<td>' + row.completedAbove + '</td>' +
-      '<td>' + escapeHtml_(formatDecimalPercent_(row.completedAbovePercent)) + '</td>' +
-      '<td>' + row.completedBelow + '</td>' +
-      '<td>' + escapeHtml_(formatDecimalPercent_(row.completedBelowPercent)) + '</td>' +
-      '<td>' + row.notStarted + '</td>' +
-      '<td>' + escapeHtml_(formatDecimalPercent_(row.notStartedPercent)) + '</td>' +
-      '<td>' + escapeHtml_(formatScore_(row.completedAboveAverageScore)) + '</td>' +
-      '<td>' + escapeHtml_(formatScore_(row.completedBelowAverageScore)) + '</td>' +
+      '<td>' + escapeHtml_(formatCountPercent_(row.completedAbove, row.completedAbovePercent)) + '</td>' +
+      '<td>' + escapeHtml_(formatCountPercent_(row.completedBelow, row.completedBelowPercent)) + '</td>' +
+      '<td>' + escapeHtml_(formatCountPercent_(row.notStarted, row.notStartedPercent)) + '</td>' +
+      '<td>' + escapeHtml_(formatScore_(row.completedAverageScore)) + '</td>' +
       '<td>' + row.total + '</td>' +
       '</tr>';
   }).join('');
@@ -716,14 +713,22 @@ function buildDirectorTable_(title, rows, includeEmail) {
   return '<h3>' + escapeHtml_(title) + '</h3>' +
     '<table border="1" cellpadding="6" cellspacing="0" style="border-collapse:collapse;">' +
     '<thead><tr><th>' + escapeHtml_(title === 'Manager Breakdown' ? 'Manager' : 'Segment') + '</th>' +
-    (includeEmail ? '<th>Manager Email</th>' : '') +
-    '<th>' + COMPLETED_CLEARED_LABEL + '</th><th>% ' + COMPLETED_CLEARED_LABEL + '</th>' +
-    '<th>' + COMPLETED_NOT_CLEARED_LABEL + '</th><th>% ' + COMPLETED_NOT_CLEARED_LABEL + '</th>' +
-    '<th>' + NOT_STARTED_LABEL + '</th><th>% ' + NOT_STARTED_LABEL + '</th>' +
-    '<th>Avg Score - ' + COMPLETED_CLEARED_LABEL + '</th>' +
-    '<th>Avg Score - ' + COMPLETED_NOT_CLEARED_LABEL + '</th>' +
+    '<th>' + COMPLETED_CLEARED_LABEL + '</th>' +
+    '<th>' + COMPLETED_NOT_CLEARED_LABEL + '</th>' +
+    '<th>' + NOT_STARTED_LABEL + '</th>' +
+    '<th>Average Completed Score</th>' +
     '<th>Total</th></tr></thead>' +
     '<tbody>' + tableRows + '</tbody></table>';
+}
+
+function companySummaryRow_(company) {
+  var row = {};
+  Object.keys(company).forEach(function(key) {
+    row[key] = company[key];
+  });
+  row.name = 'Company';
+  row.isCompanySummary = true;
+  return row;
 }
 
 function buildSeniorLeadershipRecap_(csvRows, managerRoster, runSettings) {
@@ -1109,7 +1114,6 @@ function buildManagerRecapTable_(managerRows) {
   var rows = managerRows.map(function(manager) {
     return '<tr>' +
       '<td>' + escapeHtml_(manager.managerName) + '</td>' +
-      '<td>' + escapeHtml_(manager.managerEmail) + '</td>' +
       '<td>' + escapeHtml_(formatPercent_(manager.completedAbove, manager.total)) + '</td>' +
       '<td>' + escapeHtml_(formatPercent_(manager.completedBelow, manager.total)) + '</td>' +
       '<td>' + escapeHtml_(formatPercent_(manager.notStarted, manager.total)) + '</td>' +
@@ -1119,7 +1123,7 @@ function buildManagerRecapTable_(managerRows) {
 
   return '<h3>Manager Breakdown</h3>' +
     '<table border="1" cellpadding="6" cellspacing="0" style="border-collapse:collapse;">' +
-    '<thead><tr><th>Manager</th><th>Manager Email</th><th>% ' + COMPLETED_CLEARED_LABEL + '</th><th>% ' + COMPLETED_NOT_CLEARED_LABEL + '</th><th>% ' + NOT_STARTED_LABEL + '</th><th>Total Simulations</th></tr></thead>' +
+    '<thead><tr><th>Manager</th><th>% ' + COMPLETED_CLEARED_LABEL + '</th><th>% ' + COMPLETED_NOT_CLEARED_LABEL + '</th><th>% ' + NOT_STARTED_LABEL + '</th><th>Total Simulations</th></tr></thead>' +
     '<tbody>' + rows + '</tbody></table>';
 }
 
@@ -1904,6 +1908,10 @@ function formatDecimalPercent_(value) {
   }
 
   return Math.round(value * 100) + '%';
+}
+
+function formatCountPercent_(count, percent) {
+  return count + ' (' + formatDecimalPercent_(percent) + ')';
 }
 
 function emailFromName_(name) {
