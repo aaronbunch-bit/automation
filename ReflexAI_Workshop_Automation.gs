@@ -1,5 +1,6 @@
 var CSV_DUMP_SHEET_NAME = 'ReflexAI CSV Dump';
 var LOOKER_MANAGER_LOOKUP_SHEET_NAME = 'Looker Manager Lookup';
+var NAME_MATCH_OVERRIDES_SHEET_NAME = 'Name Match Overrides';
 var MISSING_LOOKER_PAIRINGS_SHEET_NAME = 'Missing Looker Manager Pairing';
 var EXCEPTION_SHEET_NAME = 'Simulation Exceptions';
 var RUN_LOG_SHEET_NAME = 'Run Log';
@@ -46,6 +47,11 @@ var MISSING_LOOKER_PAIRINGS_HEADERS = [
   'Representative'
 ];
 
+var NAME_MATCH_OVERRIDES_HEADERS = [
+  'ReflexAI Name',
+  'Looker Name'
+];
+
 var EXCEPTION_HEADERS = [
   'Report Run At',
   'Representative',
@@ -83,6 +89,7 @@ function createSetupSheets() {
 
   createSheetWithHeaders_(spreadsheet, CSV_DUMP_SHEET_NAME, CSV_DUMP_HEADERS);
   createSheetWithHeaders_(spreadsheet, LOOKER_MANAGER_LOOKUP_SHEET_NAME, LOOKER_MANAGER_LOOKUP_HEADERS);
+  createSheetWithHeaders_(spreadsheet, NAME_MATCH_OVERRIDES_SHEET_NAME, NAME_MATCH_OVERRIDES_HEADERS);
   createSheetWithHeaders_(spreadsheet, MISSING_LOOKER_PAIRINGS_SHEET_NAME, MISSING_LOOKER_PAIRINGS_HEADERS);
   createSheetWithHeaders_(spreadsheet, EXCEPTION_SHEET_NAME, EXCEPTION_HEADERS);
   createRunSettingsSheet_(spreadsheet);
@@ -163,10 +170,7 @@ function runWeeklySimulationExceptionReport() {
     var simulationName = getValue_(row, 'Simulation Name');
     var status = getValue_(row, 'Status');
     var score = getValue_(row, 'Best Score (%)');
-    var managerInfo =
-      managerRoster[String(userEmail).toLowerCase().trim()] ||
-      managerRoster[normalizePersonKey_(userName)] ||
-      {};
+    var managerInfo = getManagerInfoForRep_(managerRoster, userEmail, userName);
 
     if (!managerInfo.managerName) {
       if (String(userName || '').trim()) {
@@ -473,10 +477,7 @@ function buildSeniorLeadershipRecap_(csvRows, managerRoster, runSettings) {
     var status = getValue_(row, 'Status');
     var score = parseScore_(getValue_(row, 'Best Score (%)'));
     var category = classifySimulationOutcome_(status, score);
-    var managerInfo =
-      managerRoster[String(userEmail).toLowerCase().trim()] ||
-      managerRoster[normalizePersonKey_(userName)] ||
-      {};
+    var managerInfo = getManagerInfoForRep_(managerRoster, userEmail, userName);
 
     if (!managerInfo.managerName) {
       return;
@@ -626,6 +627,24 @@ function normalizePersonKey_(value) {
     .trim();
 }
 
+function personNameTokens_(value) {
+  return normalizePersonKey_(value)
+    .split(' ')
+    .filter(Boolean);
+}
+
+function firstLastKey_(value) {
+  var tokens = personNameTokens_(value);
+  if (tokens.length < 2) return '';
+  return tokens[0] + '|' + tokens[tokens.length - 1];
+}
+
+function firstInitialLastKey_(value) {
+  var tokens = personNameTokens_(value);
+  if (tokens.length < 2) return '';
+  return tokens[0].charAt(0) + '|' + tokens[tokens.length - 1];
+}
+
 function isJohnRiordanName_(value) {
   var normalized = normalizePersonKey_(value);
   return [
@@ -743,6 +762,9 @@ function buildManagerRecapTable_(managerRows) {
 function buildLookerManagerRoster_(spreadsheet) {
   var rows = readSheetRows_(spreadsheet, LOOKER_MANAGER_LOOKUP_SHEET_NAME);
   var roster = {};
+  var exactByName = {};
+  var firstLastCandidates = {};
+  var firstInitialLastCandidates = {};
 
   rows.forEach(function(row) {
     var repName = getValue_(row, 'Manager');
@@ -779,6 +801,9 @@ function buildLookerManagerRoster_(spreadsheet) {
     var normalizedRepName = normalizePersonKey_(repName);
     if (normalizedRepName) {
       roster[normalizedRepName] = managerInfo;
+      exactByName[normalizedRepName] = managerInfo;
+      addCandidate_(firstLastCandidates, firstLastKey_(repName), managerInfo);
+      addCandidate_(firstInitialLastCandidates, firstInitialLastKey_(repName), managerInfo);
     }
 
     repEmail = String(repEmail || '').toLowerCase().trim();
@@ -788,7 +813,77 @@ function buildLookerManagerRoster_(spreadsheet) {
     }
   });
 
+  addUniqueCandidateMatches_(roster, 'firstlast:', firstLastCandidates);
+  addUniqueCandidateMatches_(roster, 'initiallast:', firstInitialLastCandidates);
+  applyNameMatchOverrides_(spreadsheet, roster, exactByName);
+
   return roster;
+}
+
+function getManagerInfoForRep_(managerRoster, repEmail, repName) {
+  var emailKey = String(repEmail || '').toLowerCase().trim();
+  var exactNameKey = normalizePersonKey_(repName);
+  var firstLast = firstLastKey_(repName);
+  var initialLast = firstInitialLastKey_(repName);
+
+  return managerRoster[emailKey] ||
+    managerRoster[exactNameKey] ||
+    managerRoster['firstlast:' + firstLast] ||
+    managerRoster['initiallast:' + initialLast] ||
+    {};
+}
+
+function addCandidate_(candidateMap, key, managerInfo) {
+  if (!key) return;
+  if (!candidateMap[key]) candidateMap[key] = [];
+  candidateMap[key].push(managerInfo);
+}
+
+function addUniqueCandidateMatches_(roster, prefix, candidateMap) {
+  Object.keys(candidateMap).forEach(function(key) {
+    var uniqueCandidates = uniqueManagerCandidates_(candidateMap[key]);
+    if (uniqueCandidates.length === 1) {
+      roster[prefix + key] = uniqueCandidates[0];
+    }
+  });
+}
+
+function uniqueManagerCandidates_(candidates) {
+  var seen = {};
+  var unique = [];
+
+  candidates.forEach(function(candidate) {
+    var key = [
+      candidate.managerName,
+      candidate.managerEmail,
+      candidate.seniorName,
+      candidate.seniorEmail
+    ].map(function(value) {
+      return String(value || '').toLowerCase().trim();
+    }).join('|');
+
+    if (seen[key]) return;
+    seen[key] = true;
+    unique.push(candidate);
+  });
+
+  return unique;
+}
+
+function applyNameMatchOverrides_(spreadsheet, roster, exactByName) {
+  var rows = readSheetRows_(spreadsheet, NAME_MATCH_OVERRIDES_SHEET_NAME);
+
+  rows.forEach(function(row) {
+    var reflexAiName = getValue_(row, 'ReflexAI Name');
+    var lookerName = getValue_(row, 'Looker Name');
+    var managerInfo = exactByName[normalizePersonKey_(lookerName)];
+
+    if (!reflexAiName || !managerInfo) {
+      return;
+    }
+
+    roster[normalizePersonKey_(reflexAiName)] = managerInfo;
+  });
 }
 
 function createRunSettingsSheet_(spreadsheet) {
