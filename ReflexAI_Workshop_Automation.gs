@@ -55,6 +55,7 @@ function onOpen() {
     .addItem('Set current journey name', 'setCurrentJourneyName')
     .addItem('Run report from CSV dump now', 'runWeeklySimulationExceptionReport')
     .addItem('Test senior leadership recap to Aaron/Bobby', 'sendTestSeniorLeadershipRecap')
+    .addItem('Email senior leadership recap', 'sendSeniorLeadershipRecap')
     .addItem('Test email batches to Aaron/Robert', 'sendTestManagerExceptionEmails')
     .addItem('Email managers current exceptions', 'sendManagerExceptionEmails')
     .addToUi();
@@ -337,6 +338,18 @@ function sendTestSeniorLeadershipRecap() {
   sendSeniorLeadershipRecap_(TEST_EMAIL_RECIPIENTS, true);
 }
 
+function sendSeniorLeadershipRecap() {
+  var spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+  var recipients = getSeniorLeaderRecipients_(spreadsheet);
+
+  if (!recipients.length) {
+    SpreadsheetApp.getUi().alert('No senior leader emails found in column G of "Simulation Exceptions". Run the report first and confirm senior leader emails are populated.');
+    return;
+  }
+
+  sendSeniorLeadershipRecap_(recipients, false);
+}
+
 function sendSeniorLeadershipRecap_(recipients, testMode) {
   var spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
   var csvRows = readSheetRows_(spreadsheet, CSV_DUMP_SHEET_NAME);
@@ -364,6 +377,36 @@ function sendSeniorLeadershipRecap_(recipients, testMode) {
     '\nRows included: ' +
     recap.totalRows
   );
+}
+
+function getSeniorLeaderRecipients_(spreadsheet) {
+  var sheet = spreadsheet.getSheetByName(EXCEPTION_SHEET_NAME);
+  if (!sheet || sheet.getLastRow() < 2) {
+    return [];
+  }
+
+  var values = sheet.getDataRange().getValues();
+  var headers = values[0].map(function(header) {
+    return String(header).trim();
+  });
+  var col = buildColumnIndex_(headers);
+  var seniorEmailColumn = col['Senior / Team Lead Email'] !== undefined
+    ? col['Senior / Team Lead Email']
+    : 6;
+  var seen = {};
+  var recipients = [];
+
+  values.slice(1).forEach(function(row) {
+    var email = String(row[seniorEmailColumn] || '').toLowerCase().trim();
+    if (!email || seen[email]) {
+      return;
+    }
+
+    seen[email] = true;
+    recipients.push(email);
+  });
+
+  return recipients;
 }
 
 function buildSeniorLeadershipRecap_(csvRows, managerRoster, runSettings) {
