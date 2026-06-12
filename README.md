@@ -46,6 +46,9 @@ The test email step sends the same manager batches to
 marks those rows with `Test Sent = Y`.
 
 The real email step sends one batched email per manager, not one email per row.
+Inside each email, exceptions are grouped to one entry per representative and
+journey. Completed simulations below 80% appear first with a red-to-yellow score
+gradient, followed by not-started and in-progress simulations.
 After each manager email sends successfully, the script marks the related
 exception rows with `Manager Email Sent = Yes` and a `Manager Email Sent At`
 timestamp. Rows already marked `Yes` are skipped to prevent duplicate manager

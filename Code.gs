@@ -60,6 +60,8 @@ var MANAGER_ROSTER_SHEET_NAME = 'Manager Roster';
 var EXCEPTION_SHEET_NAME = 'Simulation Exceptions';
 var RUN_LOG_SHEET_NAME = 'Run Log';
 var CONFIG_SHEET_NAME = 'Setup Checklist';
+var COMPLETE_SIMULATION_ACTION = 'Ask representative to complete this simulation and schedule time via Assembled for representative to complete the simulation adhering to capacity constraints.';
+var RETAKE_SIMULATION_ACTION = 'Ask representative to retake this simulation and coach on missed skills.';
 
 var CSV_DUMP_HEADERS = [
   'User Name',
@@ -502,9 +504,9 @@ function toExceptionRow_(record, config, reportRunAt) {
   var action = null;
   if (!hasAttempt || ['not started', 'not attempted', 'not_started', 'assigned', 'pending', 'in progress', 'started'].indexOf(statusLower) !== -1) {
     status = status || 'Not attempted';
-    action = 'Ask representative to complete this simulation.';
+    action = COMPLETE_SIMULATION_ACTION;
   } else if (completed && isFinite(scorePercent) && scorePercent < config.passingScorePercent) {
-    action = 'Ask representative to retake this simulation and coach on missed skills.';
+    action = RETAKE_SIMULATION_ACTION;
   } else if (completed && !isFinite(scorePercent)) {
     action = 'Review manually: completed simulation is missing a score.';
   }
@@ -760,6 +762,7 @@ function buildColumnIndex_(headers) {
 }
 
 function buildManagerBatchEmailBody_(managerName, rows, testMode, intendedManagerEmail) {
+  var sections = buildEmailSections_(rows);
   var lines = [];
   if (testMode) {
     lines.push('TEST MODE - This batch would have gone to: ' + intendedManagerEmail);
@@ -772,21 +775,8 @@ function buildManagerBatchEmailBody_(managerName, rows, testMode, intendedManage
   lines.push('Only not-started, in-progress, or below-80% simulations are included.');
   lines.push('');
 
-  rows.forEach(function(row) {
-    lines.push(
-      row.repName +
-      ' | ' +
-      row.journeyName +
-      ' | ' +
-      row.simulationName +
-      ' | ' +
-      row.status +
-      ' | ' +
-      formatScore_(row.score) +
-      ' | ' +
-      row.action
-    );
-  });
+  appendPlainTextSection_(lines, 'BELOW 80% COMPLETED SIMULATIONS - PRIORITY', sections.lowScoreGroups);
+  appendPlainTextSection_(lines, 'NOT STARTED / IN PROGRESS SIMULATIONS', sections.incompleteGroups);
 
   lines.push('');
   lines.push('Thank you.');
@@ -794,25 +784,145 @@ function buildManagerBatchEmailBody_(managerName, rows, testMode, intendedManage
 }
 
 function buildManagerBatchEmailHtml_(managerName, rows, testMode, intendedManagerEmail) {
-  var tableRows = rows.map(function(row) {
-    return '<tr>' +
-      '<td>' + escapeHtml_(row.repName) + '</td>' +
-      '<td>' + escapeHtml_(row.journeyName) + '</td>' +
-      '<td>' + escapeHtml_(row.simulationName) + '</td>' +
-      '<td>' + escapeHtml_(row.status) + '</td>' +
-      '<td>' + escapeHtml_(formatScore_(row.score)) + '</td>' +
-      '<td>' + escapeHtml_(row.action) + '</td>' +
-      '</tr>';
-  }).join('');
+  var sections = buildEmailSections_(rows);
 
   return (testMode ? '<p><strong>TEST MODE</strong> - This batch would have gone to: ' + escapeHtml_(intendedManagerEmail) + '</p>' : '') +
     '<p>Hi' + (managerName ? ' ' + escapeHtml_(managerName) : '') + ',</p>' +
     '<p>Below are ReflexAI simulation follow-up items for your team. Only not-started, in-progress, or below-80% simulations are included.</p>' +
-    '<table border="1" cellpadding="6" cellspacing="0">' +
+    buildHtmlSection_('Below 80% Completed Simulations - Priority', sections.lowScoreGroups, true) +
+    buildHtmlSection_('Not Started / In Progress Simulations', sections.incompleteGroups, false) +
+    '<p>Thank you.</p>';
+}
+
+function buildEmailSections_(rows) {
+  var lowScoreRows = [];
+  var incompleteRows = [];
+
+  rows.forEach(function(row) {
+    if (isBelowThresholdEmailRow_(row)) {
+      lowScoreRows.push(row);
+    } else {
+      incompleteRows.push(row);
+    }
+  });
+
+  return {
+    lowScoreGroups: aggregateEmailRowsByRepJourney_(lowScoreRows),
+    incompleteGroups: aggregateEmailRowsByRepJourney_(incompleteRows)
+  };
+}
+
+function aggregateEmailRowsByRepJourney_(rows) {
+  var grouped = {};
+  rows.forEach(function(row) {
+    var key = [
+      String(row.repEmail || row.repName || '').toLowerCase().trim(),
+      String(row.journeyName || '').toLowerCase().trim()
+    ].join('|');
+
+    if (!grouped[key]) {
+      grouped[key] = {
+        repName: row.repName,
+        journeyName: row.journeyName,
+        simulations: [],
+        minScorePercent: null
+      };
+    }
+
+    var scorePercent = parseEmailScorePercent_(row.score);
+    if (isFinite(scorePercent)) {
+      grouped[key].minScorePercent = grouped[key].minScorePercent === null
+        ? scorePercent
+        : Math.min(grouped[key].minScorePercent, scorePercent);
+    }
+
+    grouped[key].simulations.push({
+      simulationName: row.simulationName,
+      status: row.status,
+      score: row.score,
+      action: row.action
+    });
+  });
+
+  return Object.keys(grouped)
+    .map(function(key) { return grouped[key]; })
+    .sort(function(a, b) {
+      return String(a.repName).localeCompare(String(b.repName));
+    });
+}
+
+function appendPlainTextSection_(lines, title, groups) {
+  if (!groups.length) return;
+
+  lines.push(title);
+  lines.push('');
+
+  groups.forEach(function(group) {
+    lines.push(group.repName + ' | ' + group.journeyName);
+    lines.push('Simulations: ' + group.simulations.map(function(item) { return item.simulationName; }).join(', '));
+    lines.push('Statuses: ' + group.simulations.map(function(item) { return item.simulationName + ': ' + item.status; }).join('; '));
+    lines.push('Scores: ' + group.simulations.map(function(item) { return item.simulationName + ': ' + formatScore_(item.score); }).join('; '));
+    lines.push('Follow-up Action: ' + summarizeActions_(group.simulations));
+    lines.push('');
+  });
+}
+
+function buildHtmlSection_(title, groups, useScoreGradient) {
+  if (!groups.length) return '';
+
+  var tableRows = groups.map(function(group) {
+    var rowStyle = useScoreGradient
+      ? ' style="background-color:' + scoreGradientColor_(group.minScorePercent) + ';"'
+      : '';
+
+    return '<tr' + rowStyle + '>' +
+      '<td>' + escapeHtml_(group.repName) + '</td>' +
+      '<td>' + escapeHtml_(group.journeyName) + '</td>' +
+      '<td>' + group.simulations.map(function(item) { return escapeHtml_(item.simulationName); }).join('<br>') + '</td>' +
+      '<td>' + group.simulations.map(function(item) { return escapeHtml_(item.simulationName + ': ' + item.status); }).join('<br>') + '</td>' +
+      '<td>' + group.simulations.map(function(item) { return escapeHtml_(item.simulationName + ': ' + formatScore_(item.score)); }).join('<br>') + '</td>' +
+      '<td>' + escapeHtml_(summarizeActions_(group.simulations)) + '</td>' +
+      '</tr>';
+  }).join('');
+
+  return '<h3>' + escapeHtml_(title) + '</h3>' +
+    '<table border="1" cellpadding="6" cellspacing="0" style="border-collapse:collapse;">' +
     '<thead><tr><th>Representative</th><th>Journey</th><th>Simulation</th><th>Status</th><th>Score</th><th>Follow-up Action</th></tr></thead>' +
     '<tbody>' + tableRows + '</tbody>' +
-    '</table>' +
-    '<p>Thank you.</p>';
+    '</table>';
+}
+
+function summarizeActions_(simulations) {
+  var hasLowScore = simulations.some(function(item) {
+    return isBelowThresholdEmailRow_(item);
+  });
+  if (hasLowScore) return RETAKE_SIMULATION_ACTION;
+  return COMPLETE_SIMULATION_ACTION;
+}
+
+function isBelowThresholdEmailRow_(row) {
+  var scorePercent = parseEmailScorePercent_(row.score);
+  return isFinite(scorePercent) && scorePercent < 80;
+}
+
+function parseEmailScorePercent_(score) {
+  if (score === '' || score === null || score === undefined) return NaN;
+  if (typeof score === 'number') return score <= 1 ? score * 100 : score;
+  var parsed = Number(String(score).replace('%', '').trim());
+  if (!isFinite(parsed)) return NaN;
+  return parsed <= 1 ? parsed * 100 : parsed;
+}
+
+function scoreGradientColor_(scorePercent) {
+  if (!isFinite(scorePercent)) return '#ffffff';
+  var clamped = Math.max(0, Math.min(79, scorePercent));
+  var ratio = clamped / 79;
+  var start = { r: 244, g: 204, b: 204 };
+  var end = { r: 255, g: 242, b: 204 };
+  var r = Math.round(start.r + (end.r - start.r) * ratio);
+  var g = Math.round(start.g + (end.g - start.g) * ratio);
+  var b = Math.round(start.b + (end.b - start.b) * ratio);
+  return 'rgb(' + r + ',' + g + ',' + b + ')';
 }
 
 function sendExceptionEmails_(exceptions, config, reportRunAt) {
