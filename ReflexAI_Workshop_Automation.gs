@@ -264,7 +264,7 @@ function sendManagerEmailBatches_(testMode) {
 
     MailApp.sendEmail({
       to: recipients,
-      subject: (testMode ? '[TEST] ' : '') + 'ReflexAI weekly simulation follow-up',
+      subject: (testMode ? '[TEST] ' : '') + 'ReflexAI Weekly Simulation Follow-Up',
       body: buildManagerEmailBody_(batch.managerName, batch.rows, testMode, managerEmail),
       htmlBody: buildManagerEmailHtml_(batch.managerName, batch.rows, testMode, managerEmail)
     });
@@ -319,7 +319,7 @@ function sendSeniorLeadershipRecap_(recipients, testMode) {
 
   var managerRoster = buildManagerRoster_(spreadsheet);
   var recap = buildSeniorLeadershipRecap_(csvRows, managerRoster);
-  var subject = (testMode ? '[TEST] ' : '') + 'ReflexAI senior leadership recap';
+  var subject = (testMode ? '[TEST] ' : '') + getCurrentMonthName_() + ' ReflexAI Supergroup Recap';
 
   MailApp.sendEmail({
     to: recipients.join(','),
@@ -1021,6 +1021,10 @@ function formatPercent_(count, total) {
   }
 
   return Math.round((count / total) * 100) + '%';
+}
+
+function getCurrentMonthName_() {
+  return Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'MMMM');
 }
 
 function escapeHtml_(value) {
