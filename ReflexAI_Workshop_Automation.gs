@@ -1,5 +1,6 @@
 var CSV_DUMP_SHEET_NAME = 'ReflexAI CSV Dump';
 var MANAGER_ROSTER_SHEET_NAME = 'Manager Roster';
+var LOOKER_MANAGER_LOOKUP_SHEET_NAME = 'Looker Manager Lookup';
 var EXCEPTION_SHEET_NAME = 'Simulation Exceptions';
 var RUN_LOG_SHEET_NAME = 'Run Log';
 var RUN_SETTINGS_SHEET_NAME = 'Run Settings';
@@ -28,6 +29,15 @@ var CSV_DUMP_HEADERS = [
   'Max Attempts',
   'Completed At',
   'Journey Completion'
+];
+
+var LOOKER_MANAGER_LOOKUP_HEADERS = [
+  'Manager ID',
+  'Manager',
+  'Regional Director',
+  'Work Group',
+  'Sub Group',
+  'Group'
 ];
 
 var EXCEPTION_HEADERS = [
@@ -66,6 +76,7 @@ function createSetupSheets() {
 
   createSheetWithHeaders_(spreadsheet, CSV_DUMP_SHEET_NAME, CSV_DUMP_HEADERS);
   getOrCreateSheet_(spreadsheet, MANAGER_ROSTER_SHEET_NAME);
+  createSheetWithHeaders_(spreadsheet, LOOKER_MANAGER_LOOKUP_SHEET_NAME, LOOKER_MANAGER_LOOKUP_HEADERS);
   createSheetWithHeaders_(spreadsheet, EXCEPTION_SHEET_NAME, EXCEPTION_HEADERS);
   createRunSettingsSheet_(spreadsheet);
 
@@ -561,13 +572,33 @@ function deriveSupergroupName_(journeyName) {
 
 function normalizeManagerDisplayName_(managerName) {
   var value = String(managerName || '').trim();
-  var normalized = value.toLowerCase().replace(/\s+/g, ' ');
+  var normalized = normalizePersonKey_(value);
 
-  if (normalized === 'johnpaul riordan' || normalized === 'john riordan') {
+  if (isJohnRiordanName_(normalized)) {
     return 'John Riordan';
   }
 
   return value || 'Unassigned';
+}
+
+function normalizePersonKey_(value) {
+  return String(value || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function isJohnRiordanName_(value) {
+  var normalized = normalizePersonKey_(value);
+  return [
+    'john riordan',
+    'johnpaul riordan',
+    'john paul riordan',
+    'john ridorian',
+    'johnpaul ridorian',
+    'john paul ridorian'
+  ].indexOf(normalized) !== -1;
 }
 
 function getManagerRecapKey_(managerName, managerEmail) {
@@ -680,21 +711,29 @@ function buildManagerRoster_(spreadsheet) {
   rows.forEach(function(row) {
     var name = String(getValue_(row, 'Name')).toLowerCase().trim();
     var email = String(getValue_(row, 'Email')).toLowerCase().trim();
+    var normalizedName = normalizePersonKey_(name);
 
     if (name && email) {
       nameToEmail[name] = email;
     }
+
+    if (normalizedName && email) {
+      nameToEmail[normalizedName] = email;
+    }
   });
+
+  var lookerManagerOverrides = buildLookerManagerOverrides_(spreadsheet, nameToEmail);
 
   rows.forEach(function(row) {
     var repEmail = String(getValue_(row, 'Email')).toLowerCase().trim();
     var repName = String(getValue_(row, 'Name')).toLowerCase().trim();
+    var repDisplayName = getValue_(row, 'Name');
 
     var managerName = getValue_(row, 'Manager');
     var seniorName = getValue_(row, 'Senior');
 
-    var managerEmail = nameToEmail[String(managerName).toLowerCase().trim()] || '';
-    var seniorEmail = nameToEmail[String(seniorName).toLowerCase().trim()] || '';
+    var managerEmail = nameToEmail[normalizePersonKey_(managerName)] || '';
+    var seniorEmail = nameToEmail[normalizePersonKey_(seniorName)] || '';
 
     var managerInfo = {
       managerName: managerName,
@@ -702,6 +741,8 @@ function buildManagerRoster_(spreadsheet) {
       seniorName: seniorName,
       seniorEmail: seniorEmail
     };
+
+    managerInfo = applyLookerJohnRiordanOverride_(managerInfo, repDisplayName, lookerManagerOverrides);
 
     if (repEmail) {
       roster[repEmail] = managerInfo;
@@ -713,6 +754,44 @@ function buildManagerRoster_(spreadsheet) {
   });
 
   return roster;
+}
+
+function buildLookerManagerOverrides_(spreadsheet, nameToEmail) {
+  var rows = readSheetRows_(spreadsheet, LOOKER_MANAGER_LOOKUP_SHEET_NAME);
+  var overrides = {};
+
+  rows.forEach(function(row) {
+    var personName = getValue_(row, 'Manager');
+    var regionalDirectorName = getValue_(row, 'Regional Director');
+    var personKey = normalizePersonKey_(personName);
+
+    if (!personKey || !regionalDirectorName) {
+      return;
+    }
+
+    overrides[personKey] = {
+      managerName: regionalDirectorName,
+      managerEmail: nameToEmail[normalizePersonKey_(regionalDirectorName)] || ''
+    };
+  });
+
+  return overrides;
+}
+
+function applyLookerJohnRiordanOverride_(managerInfo, repName, lookerManagerOverrides) {
+  if (!isJohnRiordanName_(managerInfo.managerName)) {
+    return managerInfo;
+  }
+
+  var override = lookerManagerOverrides[normalizePersonKey_(repName)];
+  if (!override || !override.managerName) {
+    return managerInfo;
+  }
+
+  managerInfo.managerName = override.managerName;
+  managerInfo.managerEmail = override.managerEmail || managerInfo.managerEmail;
+  managerInfo.lookerOverrideApplied = true;
+  return managerInfo;
 }
 
 function createRunSettingsSheet_(spreadsheet) {
