@@ -15,6 +15,9 @@ var DEFAULT_JOURNEY_NAME = 'High School Year Round Workshops - Jun';
 var COMPLETE_SIMULATION_ACTION = 'Ask representative to complete this simulation and schedule time via Assembled for representative to complete the simulation adhering to capacity constraints.';
 var RETAKE_SIMULATION_ACTION = 'Ask representative to retake this simulation and coach on missed skills.';
 var REFLEXAI_PLATFORM_RESOURCE_URL = 'https://drive.google.com/file/d/18X5z6iRGRk-fKY4bAvIxswwys3ne2z3r/view';
+var COMPLETED_CLEARED_LABEL = 'Completed & Cleared 80% Threshold';
+var COMPLETED_NOT_CLEARED_LABEL = 'Completed & Not Cleared 80% Threshold';
+var NOT_STARTED_LABEL = 'Not Started';
 
 var TEST_EMAIL_RECIPIENTS = [
   'aaron.bunch@varsitytutors.com',
@@ -88,8 +91,10 @@ function onOpen() {
     .addItem('Run CSV Dump', 'runWeeklySimulationExceptionReport')
     .addItem('Test Manager Email', 'sendTestManagerExceptionEmails')
     .addItem('Test Senior Leader Email', 'sendTestSeniorLeadershipRecap')
+    .addItem('Test Director Email', 'sendTestDirectorEmail')
     .addItem('Send Manager Email', 'sendManagerExceptionEmails')
     .addItem('Send Senior Leader Email', 'sendSeniorLeadershipRecap')
+    .addItem('Send Director Email', 'sendDirectorEmail')
     .addToUi();
 }
 
@@ -468,6 +473,264 @@ function getSeniorLeaderRecipients_(spreadsheet) {
   return recipients;
 }
 
+function sendTestDirectorEmail() {
+  sendDirectorEmail_(TEST_EMAIL_RECIPIENTS, true);
+}
+
+function sendDirectorEmail() {
+  var spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+  var runSettings = getRunSettings_(spreadsheet);
+  var csvRows = loadReflexAiCsvRows_(spreadsheet, runSettings);
+
+  if (!csvRows.length) {
+    SpreadsheetApp.getUi().alert('No CSV data found. Import ReflexAI CSV data into "' + CSV_DUMP_SHEET_NAME + '" or tabs named "' + CSV_DUMP_SHEET_PREFIX + '[Journey Name]".');
+    return;
+  }
+
+  var managerRoster = buildLookerManagerRoster_(spreadsheet);
+  var recipients = getDirectorRecipients_(csvRows, managerRoster);
+
+  if (!recipients.length) {
+    SpreadsheetApp.getUi().alert('No director emails found from Looker manager pairings. Confirm Looker Manager Lookup has Regional Director values.');
+    return;
+  }
+
+  sendDirectorEmail_(recipients, false);
+}
+
+function sendDirectorEmail_(recipients, testMode) {
+  var spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+  var runSettings = getRunSettings_(spreadsheet);
+  var csvRows = loadReflexAiCsvRows_(spreadsheet, runSettings);
+
+  if (!csvRows.length) {
+    SpreadsheetApp.getUi().alert('No CSV data found. Import ReflexAI CSV data into "' + CSV_DUMP_SHEET_NAME + '" or tabs named "' + CSV_DUMP_SHEET_PREFIX + '[Journey Name]".');
+    return;
+  }
+
+  var managerRoster = buildLookerManagerRoster_(spreadsheet);
+  var recap = buildDirectorRecap_(csvRows, managerRoster, runSettings);
+  var subject = (testMode ? '[TEST] ' : '') + getCurrentMonthName_() + ' ' + recap.supergroupName + ' ReflexAI Director Recap';
+
+  MailApp.sendEmail({
+    to: recipients.join(','),
+    subject: subject,
+    body: buildDirectorEmailText_(recap, testMode),
+    htmlBody: buildDirectorEmailHtml_(recap, testMode)
+  });
+
+  SpreadsheetApp.getUi().alert(
+    'Director recap sent.\n\nRecipients: ' +
+    recipients.join(', ') +
+    '\nRows included: ' +
+    recap.totalRows
+  );
+}
+
+function getDirectorRecipients_(csvRows, managerRoster) {
+  var seen = {};
+  var recipients = [];
+
+  csvRows.forEach(function(row) {
+    var managerInfo = getManagerInfoForRep_(
+      managerRoster,
+      getValue_(row, 'User Email'),
+      getValue_(row, 'User Name')
+    );
+    var email = String(managerInfo.managerEmail || '').toLowerCase().trim();
+
+    if (!email || seen[email]) {
+      return;
+    }
+
+    seen[email] = true;
+    recipients.push(email);
+  });
+
+  return recipients;
+}
+
+function buildDirectorRecap_(csvRows, managerRoster, runSettings) {
+  var recap = {
+    totalRows: 0,
+    supergroupName: getCurrentSupergroupName_(csvRows, runSettings || {}),
+    company: newMetricBucket_(),
+    bySupergroup: {},
+    byManager: {}
+  };
+
+  csvRows.forEach(function(row) {
+    var userName = getValue_(row, 'User Name');
+    var userEmail = getValue_(row, 'User Email');
+    var managerInfo = getManagerInfoForRep_(managerRoster, userEmail, userName);
+
+    if (!managerInfo.managerName) {
+      return;
+    }
+
+    var score = parseScore_(getValue_(row, 'Best Score (%)'));
+    var category = classifySimulationOutcome_(getValue_(row, 'Status'), score);
+    var supergroupName = deriveSupergroupName_(getJourneyNameForRow_(row, runSettings || {}));
+    var managerName = normalizeManagerDisplayName_(managerInfo.managerName);
+    var managerEmail = managerInfo.managerEmail || '';
+    var managerKey = getManagerRecapKey_(managerName, managerEmail);
+
+    recap.totalRows++;
+    addMetricOutcome_(recap.company, category, score);
+
+    if (!recap.bySupergroup[supergroupName]) {
+      recap.bySupergroup[supergroupName] = newMetricBucket_(supergroupName);
+    }
+    addMetricOutcome_(recap.bySupergroup[supergroupName], category, score);
+
+    if (!recap.byManager[managerKey]) {
+      recap.byManager[managerKey] = newMetricBucket_(managerName);
+      recap.byManager[managerKey].managerEmail = managerEmail;
+    }
+    addMetricOutcome_(recap.byManager[managerKey], category, score);
+  });
+
+  recap.supergroupRows = Object.keys(recap.bySupergroup)
+    .map(function(key) {
+      return finalizeMetricBucket_(recap.bySupergroup[key]);
+    })
+    .sort(function(a, b) {
+      return String(a.name).localeCompare(String(b.name));
+    });
+
+  recap.managerRows = Object.keys(recap.byManager)
+    .map(function(key) {
+      return finalizeMetricBucket_(recap.byManager[key]);
+    })
+    .sort(metricRankSort_);
+
+  recap.company = finalizeMetricBucket_(recap.company);
+  return recap;
+}
+
+function newMetricBucket_(name) {
+  return {
+    name: name || '',
+    completedAbove: 0,
+    completedBelow: 0,
+    notStarted: 0,
+    total: 0,
+    completedAboveScoreTotal: 0,
+    completedBelowScoreTotal: 0
+  };
+}
+
+function addMetricOutcome_(bucket, category, score) {
+  bucket[category]++;
+  bucket.total++;
+
+  if (category === 'completedAbove' && !isNaN(score)) {
+    bucket.completedAboveScoreTotal += score;
+  }
+
+  if (category === 'completedBelow' && !isNaN(score)) {
+    bucket.completedBelowScoreTotal += score;
+  }
+}
+
+function finalizeMetricBucket_(bucket) {
+  bucket.completedAbovePercent = bucket.total ? bucket.completedAbove / bucket.total : 0;
+  bucket.completedBelowPercent = bucket.total ? bucket.completedBelow / bucket.total : 0;
+  bucket.notStartedPercent = bucket.total ? bucket.notStarted / bucket.total : 0;
+  bucket.completedAboveAverageScore = bucket.completedAbove ? bucket.completedAboveScoreTotal / bucket.completedAbove : null;
+  bucket.completedBelowAverageScore = bucket.completedBelow ? bucket.completedBelowScoreTotal / bucket.completedBelow : null;
+  return bucket;
+}
+
+function metricRankSort_(a, b) {
+  if (b.completedAbovePercent !== a.completedAbovePercent) {
+    return b.completedAbovePercent - a.completedAbovePercent;
+  }
+
+  if (b.completedAbove !== a.completedAbove) {
+    return b.completedAbove - a.completedAbove;
+  }
+
+  if (a.notStartedPercent !== b.notStartedPercent) {
+    return a.notStartedPercent - b.notStartedPercent;
+  }
+
+  return String(a.name).localeCompare(String(b.name));
+}
+
+function buildDirectorEmailText_(recap, testMode) {
+  var lines = [];
+
+  if (testMode) {
+    lines.push('TEST MODE - Director recap preview.');
+    lines.push('');
+  }
+
+  lines.push('Hi Directors,');
+  lines.push('');
+  lines.push('Below is the ' + getCurrentMonthName_() + ' ReflexAI director recap thus far for ' + recap.supergroupName + '.');
+  lines.push('');
+  appendDirectorTextSection_(lines, 'Company Overview', [recap.company]);
+  appendDirectorTextSection_(lines, 'Supergroup Breakdown', recap.supergroupRows);
+  appendDirectorTextSection_(lines, 'Manager Breakdown', recap.managerRows);
+
+  return lines.join('\n');
+}
+
+function appendDirectorTextSection_(lines, title, rows) {
+  lines.push(title);
+  rows.forEach(function(row) {
+    lines.push(
+      (row.name || 'Company') +
+      ' | ' + COMPLETED_CLEARED_LABEL + ': ' + row.completedAbove + ' (' + formatDecimalPercent_(row.completedAbovePercent) + ')' +
+      ' | ' + COMPLETED_NOT_CLEARED_LABEL + ': ' + row.completedBelow + ' (' + formatDecimalPercent_(row.completedBelowPercent) + ')' +
+      ' | ' + NOT_STARTED_LABEL + ': ' + row.notStarted + ' (' + formatDecimalPercent_(row.notStartedPercent) + ')' +
+      ' | Cleared Avg: ' + formatScore_(row.completedAboveAverageScore) +
+      ' | Not Cleared Avg: ' + formatScore_(row.completedBelowAverageScore)
+    );
+  });
+  lines.push('');
+}
+
+function buildDirectorEmailHtml_(recap, testMode) {
+  return (testMode ? '<p><strong>TEST MODE</strong> - Director recap preview.</p>' : '') +
+    '<p>Hi Directors,</p>' +
+    '<p>Below is the ' + escapeHtml_(getCurrentMonthName_()) + ' ReflexAI director recap thus far for ' + escapeHtml_(recap.supergroupName) + '.</p>' +
+    buildDirectorTable_('Company Overview', [recap.company], false) +
+    buildDirectorTable_('Supergroup Breakdown', recap.supergroupRows, false) +
+    buildDirectorTable_('Manager Breakdown', recap.managerRows, true);
+}
+
+function buildDirectorTable_(title, rows, includeEmail) {
+  var tableRows = rows.map(function(row) {
+    return '<tr>' +
+      '<td>' + escapeHtml_(row.name || 'Company') + '</td>' +
+      (includeEmail ? '<td>' + escapeHtml_(row.managerEmail || '') + '</td>' : '') +
+      '<td>' + row.completedAbove + '</td>' +
+      '<td>' + escapeHtml_(formatDecimalPercent_(row.completedAbovePercent)) + '</td>' +
+      '<td>' + row.completedBelow + '</td>' +
+      '<td>' + escapeHtml_(formatDecimalPercent_(row.completedBelowPercent)) + '</td>' +
+      '<td>' + row.notStarted + '</td>' +
+      '<td>' + escapeHtml_(formatDecimalPercent_(row.notStartedPercent)) + '</td>' +
+      '<td>' + escapeHtml_(formatScore_(row.completedAboveAverageScore)) + '</td>' +
+      '<td>' + escapeHtml_(formatScore_(row.completedBelowAverageScore)) + '</td>' +
+      '<td>' + row.total + '</td>' +
+      '</tr>';
+  }).join('');
+
+  return '<h3>' + escapeHtml_(title) + '</h3>' +
+    '<table border="1" cellpadding="6" cellspacing="0" style="border-collapse:collapse;">' +
+    '<thead><tr><th>' + escapeHtml_(title === 'Manager Breakdown' ? 'Manager' : 'Segment') + '</th>' +
+    (includeEmail ? '<th>Manager Email</th>' : '') +
+    '<th>' + COMPLETED_CLEARED_LABEL + '</th><th>% ' + COMPLETED_CLEARED_LABEL + '</th>' +
+    '<th>' + COMPLETED_NOT_CLEARED_LABEL + '</th><th>% ' + COMPLETED_NOT_CLEARED_LABEL + '</th>' +
+    '<th>' + NOT_STARTED_LABEL + '</th><th>% ' + NOT_STARTED_LABEL + '</th>' +
+    '<th>Avg Score - ' + COMPLETED_CLEARED_LABEL + '</th>' +
+    '<th>Avg Score - ' + COMPLETED_NOT_CLEARED_LABEL + '</th>' +
+    '<th>Total</th></tr></thead>' +
+    '<tbody>' + tableRows + '</tbody></table>';
+}
+
 function buildSeniorLeadershipRecap_(csvRows, managerRoster, runSettings) {
   var recap = {
     generatedAt: new Date(),
@@ -785,9 +1048,9 @@ function buildSeniorLeadershipRecapText_(recap, testMode) {
   lines.push('Below is the ' + getCurrentMonthName_() + ' ReflexAI recap thus far for ' + recap.supergroupName + '.');
   lines.push('');
   lines.push('Overall simulation counts');
-  lines.push('Not Started / In Progress: ' + recap.counts.notStarted);
-  lines.push('Completed Below Threshold: ' + recap.counts.completedBelow);
-  lines.push('Completed At/Above Threshold: ' + recap.counts.completedAbove);
+  lines.push(NOT_STARTED_LABEL + ': ' + recap.counts.notStarted);
+  lines.push(COMPLETED_NOT_CLEARED_LABEL + ': ' + recap.counts.completedBelow);
+  lines.push(COMPLETED_CLEARED_LABEL + ': ' + recap.counts.completedAbove);
   lines.push('');
   lines.push('Average score on completed simulations by simulation');
 
@@ -800,11 +1063,11 @@ function buildSeniorLeadershipRecapText_(recap, testMode) {
   recap.managerRows.forEach(function(manager) {
     lines.push(
       manager.managerName +
-      ' | Completed At/Above: ' +
+      ' | ' + COMPLETED_CLEARED_LABEL + ': ' +
       formatPercent_(manager.completedAbove, manager.total) +
-      ' | Completed Below: ' +
+      ' | ' + COMPLETED_NOT_CLEARED_LABEL + ': ' +
       formatPercent_(manager.completedBelow, manager.total) +
-      ' | Not Started / In Progress: ' +
+      ' | ' + NOT_STARTED_LABEL + ': ' +
       formatPercent_(manager.notStarted, manager.total)
     );
   });
@@ -826,9 +1089,9 @@ function buildLeadershipCountsTable_(recap) {
     '<table border="1" cellpadding="6" cellspacing="0" style="border-collapse:collapse;">' +
     '<thead><tr><th>Metric</th><th>Count</th></tr></thead>' +
     '<tbody>' +
-    '<tr><td>Not Started / In Progress</td><td>' + recap.counts.notStarted + '</td></tr>' +
-    '<tr><td>Completed Below Threshold</td><td>' + recap.counts.completedBelow + '</td></tr>' +
-    '<tr><td>Completed At/Above Threshold</td><td>' + recap.counts.completedAbove + '</td></tr>' +
+    '<tr><td>' + NOT_STARTED_LABEL + '</td><td>' + recap.counts.notStarted + '</td></tr>' +
+    '<tr><td>' + COMPLETED_NOT_CLEARED_LABEL + '</td><td>' + recap.counts.completedBelow + '</td></tr>' +
+    '<tr><td>' + COMPLETED_CLEARED_LABEL + '</td><td>' + recap.counts.completedAbove + '</td></tr>' +
     '</tbody></table>';
 }
 
@@ -861,7 +1124,7 @@ function buildManagerRecapTable_(managerRows) {
 
   return '<h3>Manager Breakdown</h3>' +
     '<table border="1" cellpadding="6" cellspacing="0" style="border-collapse:collapse;">' +
-    '<thead><tr><th>Manager</th><th>Manager Email</th><th>% Completed At/Above Threshold</th><th>% Completed Below Threshold</th><th>% Not Started / In Progress</th><th>Total Simulations</th></tr></thead>' +
+    '<thead><tr><th>Manager</th><th>Manager Email</th><th>% ' + COMPLETED_CLEARED_LABEL + '</th><th>% ' + COMPLETED_NOT_CLEARED_LABEL + '</th><th>% ' + NOT_STARTED_LABEL + '</th><th>Total Simulations</th></tr></thead>' +
     '<tbody>' + rows + '</tbody></table>';
 }
 
@@ -1251,12 +1514,12 @@ function buildManagerEmailBody_(managerName, rows, testMode, intendedManagerEmai
   lines.push('Hi' + (managerName ? ' ' + managerName : '') + ',');
   lines.push('');
   lines.push('Below are ReflexAI simulation follow-up items for your team.');
-  lines.push('Only not-started, in-progress, or below-80% simulations are included.');
+  lines.push('Only ' + NOT_STARTED_LABEL + ' or ' + COMPLETED_NOT_CLEARED_LABEL + ' simulations are included.');
   lines.push('Please use this video as a resource for navigating the ReflexAI Platform for further insights: ' + REFLEXAI_PLATFORM_RESOURCE_URL);
   lines.push('');
 
-  appendPlainTextSection_(lines, 'BELOW 80% COMPLETED SIMULATIONS - PRIORITY', sections.lowScoreGroups);
-  appendPlainTextSection_(lines, 'NOT STARTED / IN PROGRESS SIMULATIONS', sections.incompleteGroups);
+  appendPlainTextSection_(lines, COMPLETED_NOT_CLEARED_LABEL + ' - Priority', sections.lowScoreGroups);
+  appendPlainTextSection_(lines, NOT_STARTED_LABEL, sections.incompleteGroups);
 
   lines.push('');
   lines.push('Thank you.');
@@ -1273,10 +1536,10 @@ function buildManagerEmailHtml_(managerName, rows, testMode, intendedManagerEmai
         '</p>'
       : '') +
     '<p>Hi' + (managerName ? ' ' + escapeHtml_(managerName) : '') + ',</p>' +
-    '<p>Below are ReflexAI simulation follow-up items for your team. Only not-started, in-progress, or below-80% simulations are included.</p>' +
+    '<p>Below are ReflexAI simulation follow-up items for your team. Only ' + escapeHtml_(NOT_STARTED_LABEL) + ' or ' + escapeHtml_(COMPLETED_NOT_CLEARED_LABEL) + ' simulations are included.</p>' +
     '<p>Please use <a href="' + REFLEXAI_PLATFORM_RESOURCE_URL + '">this video</a> as a resource for navigating the ReflexAI Platform for further insights.</p>' +
-    buildHtmlSection_('Below 80% Completed Simulations - Priority', sections.lowScoreGroups, true) +
-    buildHtmlSection_('Not Started / In Progress Simulations', sections.incompleteGroups, false) +
+    buildHtmlSection_(COMPLETED_NOT_CLEARED_LABEL + ' - Priority', sections.lowScoreGroups, true) +
+    buildHtmlSection_(NOT_STARTED_LABEL, sections.incompleteGroups, false) +
     '<p>Thank you.</p>';
 }
 
@@ -1638,6 +1901,14 @@ function formatPercent_(count, total) {
   }
 
   return Math.round((count / total) * 100) + '%';
+}
+
+function formatDecimalPercent_(value) {
+  if (!value || isNaN(value)) {
+    return '0%';
+  }
+
+  return Math.round(value * 100) + '%';
 }
 
 function emailFromName_(name) {
