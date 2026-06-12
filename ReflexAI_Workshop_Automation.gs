@@ -20,8 +20,13 @@ var COMPLETED_NOT_CLEARED_LABEL = 'Completed & Not Cleared 80% Threshold';
 var NOT_STARTED_LABEL = 'Not Started';
 
 var TEST_EMAIL_RECIPIENTS = [
-  'aaron.bunch@varsitytutors.com',
-  'robert.sorrell@varsitytutors.com'
+  'aaron.bunch@varsitytutors.com'
+];
+
+var DIRECTOR_EMAIL_RECIPIENTS = [
+  'joshua.langford@varsitytutors.com',
+  'taylor.wisnasky@varsitytutors.com',
+  'aaron.bunch@varsitytutors.com'
 ];
 
 var BULK_CSV_SHEET_NAMES = [
@@ -314,8 +319,15 @@ function sendManagerEmailBatches_(testMode) {
     if (!grouped[managerEmail]) {
       grouped[managerEmail] = {
         managerName: row[col['Manager']] || '',
+        recipientEmails: {},
         rows: []
       };
+    }
+
+    grouped[managerEmail].recipientEmails[managerEmail] = true;
+    var seniorEmail = String(row[col['Senior / Team Lead Email']] || '').toLowerCase().trim();
+    if (seniorEmail) {
+      grouped[managerEmail].recipientEmails[seniorEmail] = true;
     }
 
     grouped[managerEmail].rows.push({
@@ -354,7 +366,7 @@ function sendManagerEmailBatches_(testMode) {
 
     var recipients = testMode
       ? TEST_EMAIL_RECIPIENTS.join(',')
-      : managerEmail;
+      : Object.keys(batch.recipientEmails).join(',');
 
     MailApp.sendEmail({
       to: recipients,
@@ -478,24 +490,7 @@ function sendTestDirectorEmail() {
 }
 
 function sendDirectorEmail() {
-  var spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
-  var runSettings = getRunSettings_(spreadsheet);
-  var csvRows = loadReflexAiCsvRows_(spreadsheet, runSettings);
-
-  if (!csvRows.length) {
-    SpreadsheetApp.getUi().alert('No CSV data found. Import ReflexAI CSV data into "' + CSV_DUMP_SHEET_NAME + '" or tabs named "' + CSV_DUMP_SHEET_PREFIX + '[Journey Name]".');
-    return;
-  }
-
-  var managerRoster = buildLookerManagerRoster_(spreadsheet);
-  var recipients = getDirectorRecipients_(csvRows, managerRoster);
-
-  if (!recipients.length) {
-    SpreadsheetApp.getUi().alert('No director emails found from Looker manager pairings. Confirm Looker Manager Lookup has Regional Director values.');
-    return;
-  }
-
-  sendDirectorEmail_(recipients, false);
+  sendDirectorEmail_(DIRECTOR_EMAIL_RECIPIENTS, false);
 }
 
 function sendDirectorEmail_(recipients, testMode) {
