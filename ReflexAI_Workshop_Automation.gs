@@ -4,6 +4,8 @@ var LOOKER_MANAGER_LOOKUP_SHEET_NAME = 'Looker Manager Lookup';
 var EXCEPTION_SHEET_NAME = 'Simulation Exceptions';
 var RUN_LOG_SHEET_NAME = 'Run Log';
 var RUN_SETTINGS_SHEET_NAME = 'Run Settings';
+var LOOKER_MANAGER_SOURCE_SPREADSHEET_ID = '1a6bE3cI-98tbAMyGizZwrsj3pQJdwXd1GMf5oxmFHUo';
+var LOOKER_MANAGER_SOURCE_RANGE = "'Sales Roster Update.csv'!A:G";
 
 var PASSING_SCORE_PERCENT = 80;
 var DEFAULT_JOURNEY_NAME = 'High School Year Round Workshops - Jun';
@@ -62,6 +64,7 @@ function onOpen() {
   SpreadsheetApp.getUi()
     .createMenu('ReflexAI Reporting')
     .addItem('Create setup sheets', 'createSetupSheets')
+    .addItem('Connect Looker manager import', 'connectLookerManagerImport')
     .addItem('Set current journey name', 'setCurrentJourneyName')
     .addItem('Run report from CSV dump now', 'runWeeklySimulationExceptionReport')
     .addItem('Test senior leadership recap to Aaron/Bobby', 'sendTestSeniorLeadershipRecap')
@@ -95,6 +98,21 @@ function createSetupSheets() {
   }
 
   SpreadsheetApp.getUi().alert('Setup complete.');
+}
+
+function connectLookerManagerImport() {
+  var spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = getOrCreateSheet_(spreadsheet, LOOKER_MANAGER_LOOKUP_SHEET_NAME);
+  var formula = '=IMPORTRANGE("' + LOOKER_MANAGER_SOURCE_SPREADSHEET_ID + '","' + LOOKER_MANAGER_SOURCE_RANGE + '")';
+
+  sheet.clear();
+  sheet.getRange('A1').setFormula(formula);
+  sheet.autoResizeColumns(1, 7);
+
+  SpreadsheetApp.getUi().alert(
+    'Looker manager import formula added to "' + LOOKER_MANAGER_LOOKUP_SHEET_NAME + '".\n\n' +
+    'If Google Sheets shows #REF!, click the cell and choose Allow access.'
+  );
 }
 
 function setCurrentJourneyName() {
@@ -762,7 +780,12 @@ function buildLookerManagerOverrides_(spreadsheet, nameToEmail) {
 
   rows.forEach(function(row) {
     var personName = getValue_(row, 'Manager');
-    var regionalDirectorName = getValue_(row, 'Regional Director');
+    var regionalDirectorName = getFirstNonBlankValue_(row, [
+      'Regional Director',
+      'Regional Directo',
+      'Regional Dir',
+      'Senior Leader'
+    ]);
     var personKey = normalizePersonKey_(personName);
 
     if (!personKey || !regionalDirectorName) {
