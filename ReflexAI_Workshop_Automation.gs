@@ -1490,10 +1490,9 @@ function readSheetRows_(spreadsheet, sheetName) {
 }
 
 function loadReflexAiCsvRows_(spreadsheet, runSettings) {
-  var rows = [];
+  var legacyRows = [];
+  var bulkRows = [];
   var defaultJourneyName = runSettings.currentJourneyName || DEFAULT_JOURNEY_NAME;
-
-  rows = rows.concat(annotateRowsWithJourney_(readSheetRows_(spreadsheet, CSV_DUMP_SHEET_NAME), defaultJourneyName));
 
   spreadsheet.getSheets().forEach(function(sheet) {
     var sheetName = sheet.getName();
@@ -1502,10 +1501,15 @@ function loadReflexAiCsvRows_(spreadsheet, runSettings) {
     }
 
     var journeyName = sheetName.slice(CSV_DUMP_SHEET_PREFIX.length).trim() || defaultJourneyName;
-    rows = rows.concat(annotateRowsWithJourney_(readRowsFromSheet_(sheet), journeyName));
+    bulkRows = bulkRows.concat(annotateRowsWithJourney_(readRowsFromSheet_(sheet), journeyName));
   });
 
-  return rows;
+  if (bulkRows.length) {
+    return bulkRows;
+  }
+
+  legacyRows = legacyRows.concat(annotateRowsWithJourney_(readSheetRows_(spreadsheet, CSV_DUMP_SHEET_NAME), defaultJourneyName));
+  return legacyRows;
 }
 
 function annotateRowsWithJourney_(rows, journeyName) {
