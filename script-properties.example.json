@@ -1,13 +1,16 @@
 {
-  "SPREADSHEET_ID": "paste-google-sheet-id-here",
-  "REFLEXAI_BASE_URL": "https://your-reflexai-tenant.example.com",
-  "REFLEXAI_REPORT_PATH": "/api/reporting/simulation-results",
-  "REFLEXAI_REPORT_ROWS_JSON_PATH": "data.rows",
-  "REFLEXAI_BEARER_TOKEN": "store-real-secret-only-in-apps-script-properties",
-  "MONTHLY_JOURNEY_NAME_PATTERN": "monthly workshop",
+  "DATA_SOURCE": "sheet",
+  "CSV_DUMP_SHEET_NAME": "ReflexAI CSV Dump",
+  "MANAGER_ROSTER_SHEET_NAME": "Manager Roster",
+  "DEFAULT_JOURNEY_NAME": "High School Year Round Workshops - June",
   "PASSING_SCORE_PERCENT": "80",
   "SEND_EMAILS": "false",
   "DRY_RUN": "true",
   "EMAIL_SUBJECT_PREFIX": "ReflexAI weekly simulation follow-up",
-  "EMAIL_SENDER_NAME": "ReflexAI Simulation Reporting"
+  "EMAIL_SENDER_NAME": "ReflexAI Simulation Reporting",
+  "SPREADSHEET_ID": "only-needed-if-script-is-not-attached-to-the-sheet",
+  "REFLEXAI_BASE_URL": "api-later",
+  "REFLEXAI_REPORT_PATH": "api-later",
+  "REFLEXAI_REPORT_ROWS_JSON_PATH": "api-later",
+  "REFLEXAI_BEARER_TOKEN": "api-later-store-real-secret-only-in-apps-script-properties"
 }

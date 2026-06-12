@@ -1,18 +1,21 @@
 /**
  * ReflexAI weekly exception reporting for Google Sheets.
  *
- * Configure Script Properties before running:
- * - SPREADSHEET_ID
- * - REFLEXAI_BASE_URL
- * - REFLEXAI_REPORT_PATH
- * - One authentication option:
- *   - REFLEXAI_BEARER_TOKEN
- *   - REFLEXAI_API_KEY plus optional REFLEXAI_API_KEY_HEADER
- *   - REFLEXAI_USERNAME, REFLEXAI_PASSWORD, REFLEXAI_LOGIN_PATH, and REFLEXAI_LOGIN_TOKEN_JSON_PATH
+ * Current manual workflow:
+ * - Import the weekly ReflexAI CSV into the "ReflexAI CSV Dump" tab.
+ * - Keep manager/team lead assignments in the "Manager Roster" tab.
+ * - Run runWeeklySimulationExceptionReport.
+ *
+ * Future API workflow:
+ * - Set DATA_SOURCE=api plus ReflexAI API Script Properties.
  */
 
 var CONFIG_KEYS = {
   spreadsheetId: 'SPREADSHEET_ID',
+  dataSource: 'DATA_SOURCE',
+  csvDumpSheetName: 'CSV_DUMP_SHEET_NAME',
+  managerRosterSheetName: 'MANAGER_ROSTER_SHEET_NAME',
+  defaultJourneyName: 'DEFAULT_JOURNEY_NAME',
   reflexBaseUrl: 'REFLEXAI_BASE_URL',
   reportPath: 'REFLEXAI_REPORT_PATH',
   reportRowsJsonPath: 'REFLEXAI_REPORT_ROWS_JSON_PATH',
@@ -34,25 +37,50 @@ var CONFIG_KEYS = {
 };
 
 var DEFAULT_FIELD_MAP = {
-  repName: ['repName', 'representativeName', 'learnerName', 'agentName', 'userName', 'name'],
-  repEmail: ['repEmail', 'representativeEmail', 'learnerEmail', 'agentEmail', 'userEmail', 'email'],
+  repName: ['repName', 'representativeName', 'learnerName', 'agentName', 'userName', 'User Name', 'name'],
+  repEmail: ['repEmail', 'representativeEmail', 'learnerEmail', 'agentEmail', 'userEmail', 'User Email', 'email'],
   managerName: ['managerName', 'supervisorName'],
   managerEmail: ['managerEmail', 'supervisorEmail'],
   teamLeadName: ['teamLeadName', 'team_lead_name', 'leadName'],
   teamLeadEmail: ['teamLeadEmail', 'team_lead_email', 'leadEmail'],
   journeyId: ['journeyId', 'journey_id', 'courseId'],
-  journeyName: ['journeyName', 'journey', 'courseName', 'assignmentName'],
+  journeyName: ['journeyName', 'journey', 'Journey Name', 'courseName', 'assignmentName'],
   simulationId: ['simulationId', 'simulation_id', 'scenarioId'],
-  simulationName: ['simulationName', 'simulation', 'scenarioName', 'moduleName'],
-  status: ['status', 'completionStatus', 'attemptStatus', 'state'],
-  score: ['score', 'scorePercent', 'overallScore', 'overallJourneyScore', 'percentageScore'],
-  completedAt: ['completedAt', 'completionDate', 'completed_at', 'lastAttemptAt'],
+  simulationName: ['simulationName', 'simulation', 'Simulation Name', 'scenarioName', 'moduleName'],
+  status: ['status', 'Status', 'completionStatus', 'attemptStatus', 'state'],
+  score: ['score', 'Best Score (%)', 'scorePercent', 'overallScore', 'overallJourneyScore', 'percentageScore'],
+  completedAt: ['completedAt', 'Completed At', 'completionDate', 'completed_at', 'lastAttemptAt'],
   attemptedAt: ['attemptedAt', 'startedAt', 'lastStartedAt']
 };
 
+var DEFAULT_DATA_SOURCE = 'sheet';
+var CSV_DUMP_SHEET_NAME = 'ReflexAI CSV Dump';
+var MANAGER_ROSTER_SHEET_NAME = 'Manager Roster';
 var EXCEPTION_SHEET_NAME = 'Simulation Exceptions';
 var RUN_LOG_SHEET_NAME = 'Run Log';
 var CONFIG_SHEET_NAME = 'Setup Checklist';
+
+var CSV_DUMP_HEADERS = [
+  'User Name',
+  'User Email',
+  'Simulation Name',
+  'Status',
+  'Best Score (%)',
+  'Passing Score (%)',
+  'Passed',
+  'Attempts Used',
+  'Max Attempts',
+  'Completed At',
+  'Journey Completion'
+];
+
+var MANAGER_ROSTER_HEADERS = [
+  'Representative Email',
+  'Manager Name',
+  'Manager Email',
+  'Team Lead Name',
+  'Team Lead Email'
+];
 
 var EXCEPTION_HEADERS = [
   'Report Run At',
@@ -75,7 +103,7 @@ var EXCEPTION_HEADERS = [
 function onOpen() {
   SpreadsheetApp.getUi()
     .createMenu('ReflexAI Reporting')
-    .addItem('Run weekly exception report now', 'runWeeklySimulationExceptionReport')
+    .addItem('Run report from CSV dump now', 'runWeeklySimulationExceptionReport')
     .addItem('Validate configuration', 'validateConfiguration')
     .addItem('Install weekly trigger', 'installWeeklyTrigger')
     .addItem('Create setup sheets', 'createSetupSheets')
@@ -91,11 +119,12 @@ function runWeeklySimulationExceptionReport() {
   validateConfigOrThrow_(config);
 
   var reportRunAt = new Date();
-  var records = fetchReflexAiReportRows_(config);
-  var exceptions = buildExceptionRows_(records, config, reportRunAt);
+  var records = loadReportRows_(config);
+  var managerLookup = loadManagerRoster_(config);
+  var exceptions = buildExceptionRows_(records, config, reportRunAt, managerLookup);
 
-  writeExceptionRows_(config.spreadsheetId, exceptions);
-  writeRunLog_(config.spreadsheetId, reportRunAt, records.length, exceptions.length);
+  writeExceptionRows_(config, exceptions);
+  writeRunLog_(config, reportRunAt, records.length, exceptions.length);
 
   if (config.sendEmails) {
     sendExceptionEmails_(exceptions, config, reportRunAt);
@@ -116,22 +145,22 @@ function validateConfiguration() {
   var config = getConfig_();
   validateConfigOrThrow_(config);
 
-  var records = fetchReflexAiReportRows_(config);
+  var records = loadReportRows_(config);
   if (!records.length) {
-    throw new Error('ReflexAI request succeeded, but no report rows were returned. Confirm REFLEXAI_REPORT_ROWS_JSON_PATH and the report filters.');
+    throw new Error('No ReflexAI rows were found. Import the CSV into the "' + config.csvDumpSheetName + '" tab first.');
   }
 
   var normalized = normalizeRecord_(records[0], config.fieldMap);
-  var missing = ['repName', 'journeyName', 'simulationName', 'status'].filter(function(field) {
+  var missing = ['repName', 'repEmail', 'simulationName', 'status'].filter(function(field) {
     return !normalized[field];
   });
 
   if (missing.length) {
-    throw new Error('ReflexAI returned data, but these fields could not be mapped from the first row: ' + missing.join(', ') + '. Update FIELD_MAP_JSON.');
+    throw new Error('The CSV was found, but these fields could not be mapped from the first row: ' + missing.join(', ') + '. Check the CSV headers or update FIELD_MAP_JSON.');
   }
 
   createSetupSheets();
-  Browser.msgBox('Configuration is valid. First ReflexAI row was read and mapped successfully.');
+  Browser.msgBox('CSV setup is valid. The first ReflexAI row was read and mapped successfully.');
 }
 
 /**
@@ -156,11 +185,20 @@ function installWeeklyTrigger() {
  */
 function createSetupSheets() {
   var config = getConfig_({ skipValidation: true });
-  if (!config.spreadsheetId) {
-    throw new Error('Set SPREADSHEET_ID in Script Properties before creating sheets.');
+  var spreadsheet = getSpreadsheet_(config);
+
+  var csvDumpSheet = getOrCreateSheet_(spreadsheet, config.csvDumpSheetName);
+  if (csvDumpSheet.getLastRow() === 0) {
+    csvDumpSheet.getRange(1, 1, 1, CSV_DUMP_HEADERS.length).setValues([CSV_DUMP_HEADERS]);
+    csvDumpSheet.setFrozenRows(1);
   }
 
-  var spreadsheet = SpreadsheetApp.openById(config.spreadsheetId);
+  var managerRosterSheet = getOrCreateSheet_(spreadsheet, config.managerRosterSheetName);
+  if (managerRosterSheet.getLastRow() === 0) {
+    managerRosterSheet.getRange(1, 1, 1, MANAGER_ROSTER_HEADERS.length).setValues([MANAGER_ROSTER_HEADERS]);
+    managerRosterSheet.setFrozenRows(1);
+  }
+
   var exceptionSheet = getOrCreateSheet_(spreadsheet, EXCEPTION_SHEET_NAME);
   exceptionSheet.clear();
   exceptionSheet.getRange(1, 1, 1, EXCEPTION_HEADERS.length).setValues([EXCEPTION_HEADERS]);
@@ -180,24 +218,28 @@ function createSetupSheets() {
   var checklistSheet = getOrCreateSheet_(spreadsheet, CONFIG_SHEET_NAME);
   checklistSheet.clear();
   checklistSheet.getRange(1, 1, 1, 3).setValues([['Setting', 'Required?', 'Notes']]);
-  checklistSheet.getRange(2, 1, 17, 3).setValues([
-    ['SPREADSHEET_ID', 'Yes', 'Google Sheet ID that receives exception rows.'],
-    ['REFLEXAI_BASE_URL', 'Yes', 'Base ReflexAI tenant URL, for example https://your-tenant.example.com.'],
-    ['REFLEXAI_REPORT_PATH', 'Yes', 'Path for the ReflexAI report/export endpoint that returns simulation attempts.'],
-    ['REFLEXAI_REPORT_ROWS_JSON_PATH', 'If JSON response is nested', 'Dot path to the array of records, for example data.rows.'],
-    ['REFLEXAI_BEARER_TOKEN', 'One auth option', 'Use if ReflexAI provides a bearer/API token.'],
-    ['REFLEXAI_API_KEY', 'One auth option', 'Use with REFLEXAI_API_KEY_HEADER if ReflexAI uses an API-key header.'],
-    ['REFLEXAI_API_KEY_HEADER', 'No', 'Defaults to x-api-key.'],
-    ['REFLEXAI_USERNAME', 'One auth option', 'Use for login-token flow only.'],
-    ['REFLEXAI_PASSWORD', 'One auth option', 'Use for login-token flow only.'],
-    ['REFLEXAI_LOGIN_PATH', 'Login-token auth only', 'Path that exchanges username/password for a token.'],
-    ['REFLEXAI_LOGIN_TOKEN_JSON_PATH', 'Login-token auth only', 'Dot path to token in login response, for example access_token.'],
-    ['FIELD_MAP_JSON', 'Only if ReflexAI names differ', 'JSON object mapping normalized names to ReflexAI field names.'],
-    ['MONTHLY_JOURNEY_IDS', 'No', 'Comma-separated journey IDs to include.'],
-    ['MONTHLY_JOURNEY_NAME_PATTERN', 'No', 'Regex used to include monthly workshop journeys by name.'],
-    ['PASSING_SCORE_PERCENT', 'No', 'Defaults to 80.'],
+  checklistSheet.getRange(2, 1, 21, 3).setValues([
+    ['Weekly step 1', 'Yes', 'Import the newest ReflexAI CSV into the "' + config.csvDumpSheetName + '" tab.'],
+    ['Weekly step 2', 'Yes', 'Run ReflexAI Reporting > Run report from CSV dump now.'],
+    ['Weekly step 3', 'Before emails', 'Keep the "' + config.managerRosterSheetName + '" tab filled in so the script knows who to email.'],
+    ['DATA_SOURCE', 'No', 'Defaults to sheet. Later, set to api when Bobby/Derek provide the ReflexAI API key.'],
+    ['CSV_DUMP_SHEET_NAME', 'No', 'Defaults to "' + CSV_DUMP_SHEET_NAME + '".'],
+    ['MANAGER_ROSTER_SHEET_NAME', 'No', 'Defaults to "' + MANAGER_ROSTER_SHEET_NAME + '".'],
+    ['DEFAULT_JOURNEY_NAME', 'No', 'Journey name to show when the CSV does not include one.'],
+    ['SPREADSHEET_ID', 'Only for standalone scripts', 'Google Sheet ID. Not needed when this script is attached directly to the report Sheet.'],
+    ['PASSING_SCORE_PERCENT', 'No', 'Defaults to 80, regardless of ReflexAI export wording.'],
     ['SEND_EMAILS', 'No', 'Set true to email managers/team leads. Defaults false until tested.'],
-    ['DRY_RUN', 'No', 'Set true to write the sheet without sending emails.']
+    ['DRY_RUN', 'No', 'Set true to write the sheet and log email output without sending.'],
+    ['EMAIL_SUBJECT_PREFIX', 'No', 'Defaults to ReflexAI weekly simulation follow-up.'],
+    ['EMAIL_SENDER_NAME', 'No', 'Defaults to ReflexAI Simulation Reporting.'],
+    ['REFLEXAI_BASE_URL', 'API later', 'Base ReflexAI tenant URL, for example https://your-tenant.example.com.'],
+    ['REFLEXAI_REPORT_PATH', 'API later', 'Path for the ReflexAI report/export endpoint that returns simulation attempts.'],
+    ['REFLEXAI_REPORT_ROWS_JSON_PATH', 'API later', 'Dot path to the array of records, for example data.rows.'],
+    ['REFLEXAI_BEARER_TOKEN', 'API later', 'Use if ReflexAI provides a bearer/API token.'],
+    ['REFLEXAI_API_KEY', 'API later', 'Use with REFLEXAI_API_KEY_HEADER if ReflexAI uses an API-key header.'],
+    ['REFLEXAI_API_KEY_HEADER', 'API later', 'Defaults to x-api-key.'],
+    ['FIELD_MAP_JSON', 'Only if headers change', 'JSON object mapping normalized names to ReflexAI field names.'],
+    ['MONTHLY_JOURNEY_NAME_PATTERN', 'No', 'Regex used to include monthly workshop journeys by name.']
   ]);
   checklistSheet.setFrozenRows(1);
 }
@@ -213,6 +255,10 @@ function getConfig_(options) {
 
   return {
     spreadsheetId: props.getProperty(CONFIG_KEYS.spreadsheetId),
+    dataSource: String(props.getProperty(CONFIG_KEYS.dataSource) || DEFAULT_DATA_SOURCE).toLowerCase(),
+    csvDumpSheetName: props.getProperty(CONFIG_KEYS.csvDumpSheetName) || CSV_DUMP_SHEET_NAME,
+    managerRosterSheetName: props.getProperty(CONFIG_KEYS.managerRosterSheetName) || MANAGER_ROSTER_SHEET_NAME,
+    defaultJourneyName: props.getProperty(CONFIG_KEYS.defaultJourneyName) || '',
     reflexBaseUrl: trimTrailingSlash_(props.getProperty(CONFIG_KEYS.reflexBaseUrl) || ''),
     reportPath: props.getProperty(CONFIG_KEYS.reportPath),
     reportRowsJsonPath: props.getProperty(CONFIG_KEYS.reportRowsJsonPath),
@@ -237,21 +283,84 @@ function getConfig_(options) {
 
 function validateConfigOrThrow_(config) {
   var missing = [];
-  if (!config.spreadsheetId) missing.push(CONFIG_KEYS.spreadsheetId);
-  if (!config.reflexBaseUrl) missing.push(CONFIG_KEYS.reflexBaseUrl);
-  if (!config.reportPath) missing.push(CONFIG_KEYS.reportPath);
   if (!isFinite(config.passingScorePercent)) missing.push(CONFIG_KEYS.passingScorePercent);
 
-  var hasBearer = Boolean(config.bearerToken);
-  var hasApiKey = Boolean(config.apiKey);
-  var hasLogin = Boolean(config.username && config.password && config.loginPath);
-  if (!hasBearer && !hasApiKey && !hasLogin) {
-    missing.push('one auth method: REFLEXAI_BEARER_TOKEN, REFLEXAI_API_KEY, or username/password/login settings');
+  if (config.dataSource !== 'sheet' && config.dataSource !== 'api') {
+    missing.push(CONFIG_KEYS.dataSource + ' must be sheet or api');
+  }
+
+  if (config.dataSource === 'api') {
+    if (!config.reflexBaseUrl) missing.push(CONFIG_KEYS.reflexBaseUrl);
+    if (!config.reportPath) missing.push(CONFIG_KEYS.reportPath);
+
+    var hasBearer = Boolean(config.bearerToken);
+    var hasApiKey = Boolean(config.apiKey);
+    var hasLogin = Boolean(config.username && config.password && config.loginPath);
+    if (!hasBearer && !hasApiKey && !hasLogin) {
+      missing.push('one auth method: REFLEXAI_BEARER_TOKEN, REFLEXAI_API_KEY, or username/password/login settings');
+    }
   }
 
   if (missing.length) {
     throw new Error('Missing required Script Properties: ' + missing.join(', '));
   }
+}
+
+function loadReportRows_(config) {
+  if (config.dataSource === 'sheet') {
+    return readSheetRecords_(config, config.csvDumpSheetName);
+  }
+
+  return fetchReflexAiReportRows_(config);
+}
+
+function readSheetRecords_(config, sheetName) {
+  var spreadsheet = getSpreadsheet_(config);
+  var sheet = spreadsheet.getSheetByName(sheetName);
+  if (!sheet) {
+    throw new Error('Missing "' + sheetName + '" tab. Run createSetupSheets first.');
+  }
+
+  var values = sheet.getDataRange().getValues();
+  if (values.length < 2) return [];
+
+  var headers = values[0].map(function(header) {
+    return String(header).trim();
+  });
+
+  return values.slice(1)
+    .filter(function(row) {
+      return row.some(function(value) { return value !== ''; });
+    })
+    .map(function(row) {
+      var record = {};
+      headers.forEach(function(header, index) {
+        if (header) record[header] = row[index];
+      });
+      return record;
+    });
+}
+
+function loadManagerRoster_(config) {
+  var spreadsheet = getSpreadsheet_(config);
+  var sheet = spreadsheet.getSheetByName(config.managerRosterSheetName);
+  if (!sheet || sheet.getLastRow() < 2) return {};
+
+  var records = readSheetRecords_(config, config.managerRosterSheetName);
+  var lookup = {};
+  records.forEach(function(record) {
+    var repEmail = String(record['Representative Email'] || record.repEmail || record.email || '').trim().toLowerCase();
+    if (!repEmail) return;
+
+    lookup[repEmail] = {
+      managerName: record['Manager Name'] || record.managerName || '',
+      managerEmail: record['Manager Email'] || record.managerEmail || '',
+      teamLeadName: record['Team Lead Name'] || record.teamLeadName || '',
+      teamLeadEmail: record['Team Lead Email'] || record.teamLeadEmail || ''
+    };
+  });
+
+  return lookup;
 }
 
 function fetchReflexAiReportRows_(config) {
@@ -339,10 +448,11 @@ function loginAndGetToken_(config) {
   return token;
 }
 
-function buildExceptionRows_(records, config, reportRunAt) {
+function buildExceptionRows_(records, config, reportRunAt, managerLookup) {
   return records
     .map(function(record) {
-      return normalizeRecord_(record, config.fieldMap);
+      var normalized = normalizeRecord_(record, config.fieldMap);
+      return applyManagerRoster_(normalized, managerLookup || {});
     })
     .filter(function(record) {
       return isMonthlyJourney_(record, config);
@@ -363,6 +473,18 @@ function normalizeRecord_(record, fieldMap) {
   return normalized;
 }
 
+function applyManagerRoster_(record, managerLookup) {
+  var repEmail = String(record.repEmail || '').trim().toLowerCase();
+  var managerInfo = managerLookup[repEmail];
+  if (!managerInfo) return record;
+
+  record.managerName = record.managerName || managerInfo.managerName;
+  record.managerEmail = record.managerEmail || managerInfo.managerEmail;
+  record.teamLeadName = record.teamLeadName || managerInfo.teamLeadName;
+  record.teamLeadEmail = record.teamLeadEmail || managerInfo.teamLeadEmail;
+  return record;
+}
+
 function toExceptionRow_(record, config, reportRunAt) {
   var scorePercent = parseScorePercent_(record.score);
   var status = String(record.status || '').trim();
@@ -371,7 +493,7 @@ function toExceptionRow_(record, config, reportRunAt) {
   var completed = ['completed', 'complete', 'passed', 'failed', 'scored'].indexOf(statusLower) !== -1 || Boolean(record.completedAt);
 
   var action = null;
-  if (!hasAttempt || ['not started', 'not attempted', 'not_started', 'assigned', 'pending'].indexOf(statusLower) !== -1) {
+  if (!hasAttempt || ['not started', 'not attempted', 'not_started', 'assigned', 'pending', 'in progress', 'started'].indexOf(statusLower) !== -1) {
     status = status || 'Not attempted';
     action = 'Ask representative to complete this simulation.';
   } else if (completed && isFinite(scorePercent) && scorePercent < config.passingScorePercent) {
@@ -390,7 +512,7 @@ function toExceptionRow_(record, config, reportRunAt) {
     managerEmail: record.managerEmail || '',
     teamLeadName: record.teamLeadName || '',
     teamLeadEmail: record.teamLeadEmail || '',
-    journeyName: record.journeyName || record.journeyId || '',
+    journeyName: record.journeyName || record.journeyId || config.defaultJourneyName || '',
     simulationName: record.simulationName || record.simulationId || '',
     status: status,
     score: isFinite(scorePercent) ? scorePercent / 100 : '',
@@ -410,8 +532,8 @@ function isMonthlyJourney_(record, config) {
   return true;
 }
 
-function writeExceptionRows_(spreadsheetId, exceptions) {
-  var spreadsheet = SpreadsheetApp.openById(spreadsheetId);
+function writeExceptionRows_(config, exceptions) {
+  var spreadsheet = getSpreadsheet_(config);
   var sheet = getOrCreateSheet_(spreadsheet, EXCEPTION_SHEET_NAME);
   sheet.clear();
   sheet.getRange(1, 1, 1, EXCEPTION_HEADERS.length).setValues([EXCEPTION_HEADERS]);
@@ -441,9 +563,8 @@ function writeExceptionRows_(spreadsheetId, exceptions) {
   sheet.autoResizeColumns(1, EXCEPTION_HEADERS.length);
 }
 
-function writeRunLog_(spreadsheetId, reportRunAt, recordsProcessed, exceptionsFound) {
-  var config = getConfig_({ skipValidation: true });
-  var spreadsheet = SpreadsheetApp.openById(spreadsheetId);
+function writeRunLog_(config, reportRunAt, recordsProcessed, exceptionsFound) {
+  var spreadsheet = getSpreadsheet_(config);
   var sheet = getOrCreateSheet_(spreadsheet, RUN_LOG_SHEET_NAME);
   if (sheet.getLastRow() === 0) {
     sheet.getRange(1, 1, 1, 5).setValues([[
@@ -626,6 +747,18 @@ function buildUrl_(baseUrl, path) {
 
 function trimTrailingSlash_(value) {
   return String(value || '').replace(/\/+$/, '');
+}
+
+function getSpreadsheet_(config) {
+  if (config.spreadsheetId) {
+    return SpreadsheetApp.openById(config.spreadsheetId);
+  }
+
+  var spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+  if (!spreadsheet) {
+    throw new Error('No active spreadsheet found. Attach this script to the Google Sheet or set SPREADSHEET_ID.');
+  }
+  return spreadsheet;
 }
 
 function getOrCreateSheet_(spreadsheet, sheetName) {
