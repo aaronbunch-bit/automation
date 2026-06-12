@@ -51,6 +51,7 @@ function onOpen() {
     .createMenu('ReflexAI Reporting')
     .addItem('Create setup sheets', 'createSetupSheets')
     .addItem('Run report from CSV dump now', 'runWeeklySimulationExceptionReport')
+    .addItem('Test senior leadership recap to Aaron/Bobby', 'sendTestSeniorLeadershipRecap')
     .addItem('Test email batches to Aaron/Robert', 'sendTestManagerExceptionEmails')
     .addItem('Email managers current exceptions', 'sendManagerExceptionEmails')
     .addToUi();
@@ -301,6 +302,222 @@ function sendManagerEmailBatches_(testMode) {
     '\nRows missing manager email: ' +
     skippedNoManagerEmail
   );
+}
+
+function sendTestSeniorLeadershipRecap() {
+  sendSeniorLeadershipRecap_(TEST_EMAIL_RECIPIENTS, true);
+}
+
+function sendSeniorLeadershipRecap_(recipients, testMode) {
+  var spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+  var csvRows = readSheetRows_(spreadsheet, CSV_DUMP_SHEET_NAME);
+
+  if (!csvRows.length) {
+    SpreadsheetApp.getUi().alert('No CSV data found. Import the ReflexAI CSV first.');
+    return;
+  }
+
+  var managerRoster = buildManagerRoster_(spreadsheet);
+  var recap = buildSeniorLeadershipRecap_(csvRows, managerRoster);
+  var subject = (testMode ? '[TEST] ' : '') + 'ReflexAI senior leadership recap';
+
+  MailApp.sendEmail({
+    to: recipients.join(','),
+    subject: subject,
+    body: buildSeniorLeadershipRecapText_(recap, testMode),
+    htmlBody: buildSeniorLeadershipRecapHtml_(recap, testMode)
+  });
+
+  SpreadsheetApp.getUi().alert(
+    'Senior leadership recap sent.\n\nRecipients: ' +
+    recipients.join(', ') +
+    '\nRows included: ' +
+    recap.totalRows
+  );
+}
+
+function buildSeniorLeadershipRecap_(csvRows, managerRoster) {
+  var recap = {
+    generatedAt: new Date(),
+    totalRows: csvRows.length,
+    counts: {
+      notStarted: 0,
+      completedBelow: 0,
+      completedAbove: 0
+    },
+    bySimulation: {},
+    byManager: {}
+  };
+
+  csvRows.forEach(function(row) {
+    var userName = getValue_(row, 'User Name');
+    var userEmail = getValue_(row, 'User Email');
+    var simulationName = getValue_(row, 'Simulation Name') || 'Unknown Simulation';
+    var status = getValue_(row, 'Status');
+    var score = parseScore_(getValue_(row, 'Best Score (%)'));
+    var category = classifySimulationOutcome_(status, score);
+    var managerInfo =
+      managerRoster[String(userEmail).toLowerCase().trim()] ||
+      managerRoster[String(userName).toLowerCase().trim()] ||
+      {};
+    var managerKey = String(managerInfo.managerEmail || managerInfo.managerName || 'Unassigned').toLowerCase().trim();
+
+    if (!managerKey) managerKey = 'unassigned';
+
+    recap.counts[category]++;
+
+    if (!recap.byManager[managerKey]) {
+      recap.byManager[managerKey] = {
+        managerName: managerInfo.managerName || 'Unassigned',
+        managerEmail: managerInfo.managerEmail || '',
+        notStarted: 0,
+        completedBelow: 0,
+        completedAbove: 0,
+        total: 0
+      };
+    }
+
+    recap.byManager[managerKey][category]++;
+    recap.byManager[managerKey].total++;
+
+    if (String(status).toLowerCase().trim() === 'completed' && !isNaN(score)) {
+      if (!recap.bySimulation[simulationName]) {
+        recap.bySimulation[simulationName] = {
+          simulationName: simulationName,
+          completedCount: 0,
+          scoreTotal: 0
+        };
+      }
+
+      recap.bySimulation[simulationName].completedCount++;
+      recap.bySimulation[simulationName].scoreTotal += score;
+    }
+  });
+
+  recap.simulationAverages = Object.keys(recap.bySimulation)
+    .map(function(key) {
+      var item = recap.bySimulation[key];
+      return {
+        simulationName: item.simulationName,
+        completedCount: item.completedCount,
+        averageScore: item.completedCount ? item.scoreTotal / item.completedCount : null
+      };
+    })
+    .sort(function(a, b) {
+      return String(a.simulationName).localeCompare(String(b.simulationName));
+    });
+
+  recap.managerRows = Object.keys(recap.byManager)
+    .map(function(key) {
+      return recap.byManager[key];
+    })
+    .sort(function(a, b) {
+      return String(a.managerName).localeCompare(String(b.managerName));
+    });
+
+  return recap;
+}
+
+function classifySimulationOutcome_(status, score) {
+  var statusLower = String(status).toLowerCase().trim();
+
+  if (statusLower === 'completed' && !isNaN(score)) {
+    return score >= PASSING_SCORE_PERCENT ? 'completedAbove' : 'completedBelow';
+  }
+
+  return 'notStarted';
+}
+
+function buildSeniorLeadershipRecapText_(recap, testMode) {
+  var lines = [];
+
+  if (testMode) {
+    lines.push('TEST MODE - Senior leadership recap preview.');
+    lines.push('');
+  }
+
+  lines.push('ReflexAI senior leadership recap');
+  lines.push('Rows included: ' + recap.totalRows);
+  lines.push('');
+  lines.push('Overall simulation counts');
+  lines.push('Not Started / In Progress: ' + recap.counts.notStarted);
+  lines.push('Completed Below Threshold: ' + recap.counts.completedBelow);
+  lines.push('Completed At/Above Threshold: ' + recap.counts.completedAbove);
+  lines.push('');
+  lines.push('Average score on completed simulations by simulation');
+
+  recap.simulationAverages.forEach(function(item) {
+    lines.push(item.simulationName + ': ' + formatScore_(item.averageScore) + ' across ' + item.completedCount + ' completed simulations');
+  });
+
+  lines.push('');
+  lines.push('Manager breakdown');
+  recap.managerRows.forEach(function(manager) {
+    lines.push(
+      manager.managerName +
+      ' | Completed At/Above: ' +
+      formatPercent_(manager.completedAbove, manager.total) +
+      ' | Completed Below: ' +
+      formatPercent_(manager.completedBelow, manager.total) +
+      ' | Not Started / In Progress: ' +
+      formatPercent_(manager.notStarted, manager.total)
+    );
+  });
+
+  return lines.join('\n');
+}
+
+function buildSeniorLeadershipRecapHtml_(recap, testMode) {
+  return (testMode ? '<p><strong>TEST MODE</strong> - Senior leadership recap preview.</p>' : '') +
+    '<h2>ReflexAI Senior Leadership Recap</h2>' +
+    '<p><strong>Rows included:</strong> ' + recap.totalRows + '</p>' +
+    buildLeadershipCountsTable_(recap) +
+    buildSimulationAverageTable_(recap.simulationAverages) +
+    buildManagerRecapTable_(recap.managerRows);
+}
+
+function buildLeadershipCountsTable_(recap) {
+  return '<h3>Overall Simulation Counts</h3>' +
+    '<table border="1" cellpadding="6" cellspacing="0" style="border-collapse:collapse;">' +
+    '<thead><tr><th>Metric</th><th>Count</th></tr></thead>' +
+    '<tbody>' +
+    '<tr><td>Not Started / In Progress</td><td>' + recap.counts.notStarted + '</td></tr>' +
+    '<tr><td>Completed Below Threshold</td><td>' + recap.counts.completedBelow + '</td></tr>' +
+    '<tr><td>Completed At/Above Threshold</td><td>' + recap.counts.completedAbove + '</td></tr>' +
+    '</tbody></table>';
+}
+
+function buildSimulationAverageTable_(simulationAverages) {
+  var rows = simulationAverages.map(function(item) {
+    return '<tr>' +
+      '<td>' + escapeHtml_(item.simulationName) + '</td>' +
+      '<td>' + item.completedCount + '</td>' +
+      '<td>' + escapeHtml_(formatScore_(item.averageScore)) + '</td>' +
+      '</tr>';
+  }).join('');
+
+  return '<h3>Average Score on Completed Simulations by Simulation</h3>' +
+    '<table border="1" cellpadding="6" cellspacing="0" style="border-collapse:collapse;">' +
+    '<thead><tr><th>Simulation</th><th>Completed Count</th><th>Average Score</th></tr></thead>' +
+    '<tbody>' + rows + '</tbody></table>';
+}
+
+function buildManagerRecapTable_(managerRows) {
+  var rows = managerRows.map(function(manager) {
+    return '<tr>' +
+      '<td>' + escapeHtml_(manager.managerName) + '</td>' +
+      '<td>' + escapeHtml_(manager.managerEmail) + '</td>' +
+      '<td>' + escapeHtml_(formatPercent_(manager.completedAbove, manager.total)) + '</td>' +
+      '<td>' + escapeHtml_(formatPercent_(manager.completedBelow, manager.total)) + '</td>' +
+      '<td>' + escapeHtml_(formatPercent_(manager.notStarted, manager.total)) + '</td>' +
+      '<td>' + manager.total + '</td>' +
+      '</tr>';
+  }).join('');
+
+  return '<h3>Manager Breakdown</h3>' +
+    '<table border="1" cellpadding="6" cellspacing="0" style="border-collapse:collapse;">' +
+    '<thead><tr><th>Manager</th><th>Manager Email</th><th>% Completed At/Above Threshold</th><th>% Completed Below Threshold</th><th>% Not Started / In Progress</th><th>Total Simulations</th></tr></thead>' +
+    '<tbody>' + rows + '</tbody></table>';
 }
 
 function buildManagerRoster_(spreadsheet) {
@@ -796,6 +1013,14 @@ function formatScore_(score) {
   }
 
   return Math.round(number) + '%';
+}
+
+function formatPercent_(count, total) {
+  if (!total) {
+    return '0%';
+  }
+
+  return Math.round((count / total) * 100) + '%';
 }
 
 function escapeHtml_(value) {
