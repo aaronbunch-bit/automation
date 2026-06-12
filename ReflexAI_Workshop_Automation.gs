@@ -2,6 +2,7 @@ var CSV_DUMP_SHEET_NAME = 'ReflexAI CSV Dump';
 var MANAGER_ROSTER_SHEET_NAME = 'Manager Roster';
 var EXCEPTION_SHEET_NAME = 'Simulation Exceptions';
 var RUN_LOG_SHEET_NAME = 'Run Log';
+var RUN_SETTINGS_SHEET_NAME = 'Run Settings';
 
 var PASSING_SCORE_PERCENT = 80;
 var DEFAULT_JOURNEY_NAME = 'High School Year Round Workshops - Jun';
@@ -50,6 +51,7 @@ function onOpen() {
   SpreadsheetApp.getUi()
     .createMenu('ReflexAI Reporting')
     .addItem('Create setup sheets', 'createSetupSheets')
+    .addItem('Set current journey name', 'setCurrentJourneyName')
     .addItem('Run report from CSV dump now', 'runWeeklySimulationExceptionReport')
     .addItem('Test senior leadership recap to Aaron/Bobby', 'sendTestSeniorLeadershipRecap')
     .addItem('Test email batches to Aaron/Robert', 'sendTestManagerExceptionEmails')
@@ -63,6 +65,7 @@ function createSetupSheets() {
   createSheetWithHeaders_(spreadsheet, CSV_DUMP_SHEET_NAME, CSV_DUMP_HEADERS);
   getOrCreateSheet_(spreadsheet, MANAGER_ROSTER_SHEET_NAME);
   createSheetWithHeaders_(spreadsheet, EXCEPTION_SHEET_NAME, EXCEPTION_HEADERS);
+  createRunSettingsSheet_(spreadsheet);
 
   var exceptionSheet = spreadsheet.getSheetByName(EXCEPTION_SHEET_NAME);
   ensureExceptionTrackingHeaders_(exceptionSheet);
@@ -81,6 +84,30 @@ function createSetupSheets() {
   SpreadsheetApp.getUi().alert('Setup complete.');
 }
 
+function setCurrentJourneyName() {
+  var spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+  var settings = getRunSettings_(spreadsheet);
+  var ui = SpreadsheetApp.getUi();
+  var response = ui.prompt(
+    'Set current journey name',
+    'Enter the journey name to use for this CSV when the CSV does not include a Journey column.\n\nCurrent value: ' + settings.currentJourneyName,
+    ui.ButtonSet.OK_CANCEL
+  );
+
+  if (response.getSelectedButton() !== ui.Button.OK) {
+    return;
+  }
+
+  var newJourneyName = response.getResponseText().trim();
+  if (!newJourneyName) {
+    ui.alert('Journey name was not changed because the value was blank.');
+    return;
+  }
+
+  setRunSetting_(spreadsheet, 'Current Journey Name', newJourneyName);
+  ui.alert('Current journey name updated to:\n\n' + newJourneyName);
+}
+
 function runWeeklySimulationExceptionReport() {
   var spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
 
@@ -91,6 +118,7 @@ function runWeeklySimulationExceptionReport() {
   }
 
   var managerRoster = buildManagerRoster_(spreadsheet);
+  var runSettings = getRunSettings_(spreadsheet);
   var exceptions = [];
 
   csvRows.forEach(function(row) {
@@ -141,7 +169,7 @@ function runWeeklySimulationExceptionReport() {
       managerEmail: managerInfo.managerEmail || '',
       seniorName: managerInfo.seniorName || '',
       seniorEmail: managerInfo.seniorEmail || '',
-      journeyName: DEFAULT_JOURNEY_NAME,
+      journeyName: getJourneyNameForRow_(row, runSettings),
       simulationName: simulationName,
       status: status,
       score: isNaN(scoreNumber) ? '' : scoreNumber / 100,
@@ -561,6 +589,91 @@ function buildManagerRoster_(spreadsheet) {
   });
 
   return roster;
+}
+
+function createRunSettingsSheet_(spreadsheet) {
+  var sheet = getOrCreateSheet_(spreadsheet, RUN_SETTINGS_SHEET_NAME);
+
+  if (sheet.getLastRow() === 0) {
+    sheet.getRange(1, 1, 1, 2).setValues([['Setting', 'Value']]);
+    sheet.getRange(2, 1, 1, 2).setValues([['Current Journey Name', DEFAULT_JOURNEY_NAME]]);
+    sheet.setFrozenRows(1);
+    sheet.autoResizeColumns(1, 2);
+    return;
+  }
+
+  var settings = getRunSettings_(spreadsheet);
+  if (!settings.currentJourneyName) {
+    setRunSetting_(spreadsheet, 'Current Journey Name', DEFAULT_JOURNEY_NAME);
+  }
+}
+
+function getRunSettings_(spreadsheet) {
+  var sheet = spreadsheet.getSheetByName(RUN_SETTINGS_SHEET_NAME);
+  if (!sheet || sheet.getLastRow() < 2) {
+    return {
+      currentJourneyName: DEFAULT_JOURNEY_NAME
+    };
+  }
+
+  var values = sheet.getDataRange().getValues();
+  var settings = {};
+
+  values.slice(1).forEach(function(row) {
+    var key = String(row[0] || '').trim();
+    var value = String(row[1] || '').trim();
+    if (key) {
+      settings[key] = value;
+    }
+  });
+
+  return {
+    currentJourneyName: settings['Current Journey Name'] || DEFAULT_JOURNEY_NAME
+  };
+}
+
+function setRunSetting_(spreadsheet, settingName, settingValue) {
+  var sheet = getOrCreateSheet_(spreadsheet, RUN_SETTINGS_SHEET_NAME);
+
+  if (sheet.getLastRow() === 0) {
+    sheet.getRange(1, 1, 1, 2).setValues([['Setting', 'Value']]);
+    sheet.setFrozenRows(1);
+  }
+
+  var values = sheet.getDataRange().getValues();
+  for (var i = 1; i < values.length; i++) {
+    if (String(values[i][0] || '').trim() === settingName) {
+      sheet.getRange(i + 1, 2).setValue(settingValue);
+      sheet.autoResizeColumns(1, 2);
+      return;
+    }
+  }
+
+  sheet.appendRow([settingName, settingValue]);
+  sheet.autoResizeColumns(1, 2);
+}
+
+function getJourneyNameForRow_(row, runSettings) {
+  return getFirstNonBlankValue_(row, [
+    'Journey',
+    'Journey Name',
+    'Journey Title',
+    'Workshop',
+    'Workshop Name',
+    'Course',
+    'Course Name'
+  ]) || runSettings.currentJourneyName || DEFAULT_JOURNEY_NAME;
+}
+
+function getFirstNonBlankValue_(row, keys) {
+  for (var i = 0; i < keys.length; i++) {
+    var value = getValue_(row, keys[i]);
+    if (String(value || '').trim()) {
+      return value;
+    }
+  }
+
+  return '';
 }
 
 function writeExceptions_(spreadsheet, exceptions) {
