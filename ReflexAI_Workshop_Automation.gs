@@ -544,8 +544,9 @@ function buildSeniorLeadershipRecapText_(recap, testMode) {
     lines.push('');
   }
 
-  lines.push('ReflexAI senior leadership recap');
-  lines.push('Supergroup: ' + recap.supergroupName);
+  lines.push('Hi Senior Leaders,');
+  lines.push('');
+  lines.push('Below is the ' + getCurrentMonthName_() + ' ReflexAI recap thus far for ' + recap.supergroupName + '.');
   lines.push('');
   lines.push('Overall simulation counts');
   lines.push('Not Started / In Progress: ' + recap.counts.notStarted);
@@ -577,8 +578,8 @@ function buildSeniorLeadershipRecapText_(recap, testMode) {
 
 function buildSeniorLeadershipRecapHtml_(recap, testMode) {
   return (testMode ? '<p><strong>TEST MODE</strong> - Senior leadership recap preview.</p>' : '') +
-    '<h2>ReflexAI Senior Leadership Recap</h2>' +
-    '<p><strong>Supergroup:</strong> ' + escapeHtml_(recap.supergroupName) + '</p>' +
+    '<p>Hi Senior Leaders,</p>' +
+    '<p>Below is the ' + escapeHtml_(getCurrentMonthName_()) + ' ReflexAI recap thus far for ' + escapeHtml_(recap.supergroupName) + '.</p>' +
     buildLeadershipCountsTable_(recap) +
     buildSimulationAverageTable_(recap.simulationAverages) +
     buildManagerRecapTable_(recap.managerRows);
