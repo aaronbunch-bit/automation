@@ -29,6 +29,34 @@ var DIRECTOR_EMAIL_RECIPIENTS = [
   'aaron.bunch@varsitytutors.com'
 ];
 
+var SENIOR_LEADER_SUPERGROUP_RECIPIENTS = [
+  {
+    supergroupName: 'Prof Certs',
+    leaderName: 'Yago Lupi',
+    email: 'yago.lupi@varsitytutors.com'
+  },
+  {
+    supergroupName: 'ELD',
+    leaderName: 'Aftynn Peters',
+    email: 'aftynn.peters@varsitytutors.com'
+  },
+  {
+    supergroupName: 'High School',
+    leaderName: 'Aftynn Peters',
+    email: 'aftynn.peters@varsitytutors.com'
+  },
+  {
+    supergroupName: 'College',
+    leaderName: 'Joshua Langford',
+    email: 'joshua.langford@varsitytutors.com'
+  },
+  {
+    supergroupName: 'Adult Learning',
+    leaderName: 'Joshua Langford',
+    email: 'joshua.langford@varsitytutors.com'
+  }
+];
+
 var BULK_CSV_SHEET_NAMES = [
   'ReflexAI CSV - High School',
   'ReflexAI CSV - ELD',
@@ -411,22 +439,14 @@ function sendManagerEmailBatches_(testMode) {
 }
 
 function sendTestSeniorLeadershipRecap() {
-  sendSeniorLeadershipRecap_(TEST_EMAIL_RECIPIENTS, true);
+  sendSeniorLeadershipRecaps_(true);
 }
 
 function sendSeniorLeadershipRecap() {
-  var spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
-  var recipients = getSeniorLeaderRecipients_(spreadsheet);
-
-  if (!recipients.length) {
-    SpreadsheetApp.getUi().alert('No senior leader emails found in column G of "Simulation Exceptions". Run the report first and confirm senior leader emails are populated.');
-    return;
-  }
-
-  sendSeniorLeadershipRecap_(recipients, false);
+  sendSeniorLeadershipRecaps_(false);
 }
 
-function sendSeniorLeadershipRecap_(recipients, testMode) {
+function sendSeniorLeadershipRecaps_(testMode) {
   var spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
   var runSettings = getRunSettings_(spreadsheet);
   var csvRows = loadReflexAiCsvRows_(spreadsheet, runSettings);
@@ -437,22 +457,43 @@ function sendSeniorLeadershipRecap_(recipients, testMode) {
   }
 
   var managerRoster = buildLookerManagerRoster_(spreadsheet);
-  var recap = buildSeniorLeadershipRecap_(csvRows, managerRoster, runSettings);
-  var subject = (testMode ? '[TEST] ' : '') + getCurrentMonthName_() + ' ' + recap.supergroupName + ' ReflexAI Supergroup Recap';
+  var sentCount = 0;
 
-  MailApp.sendEmail({
-    to: recipients.join(','),
-    subject: subject,
-    body: buildSeniorLeadershipRecapText_(recap, testMode),
-    htmlBody: buildSeniorLeadershipRecapHtml_(recap, testMode)
+  SENIOR_LEADER_SUPERGROUP_RECIPIENTS.forEach(function(config) {
+    var filteredRows = filterRowsForSupergroup_(csvRows, config.supergroupName, runSettings);
+    var recap = buildSeniorLeadershipRecap_(filteredRows, managerRoster, {
+      currentJourneyName: config.supergroupName
+    });
+    recap.supergroupName = config.supergroupName;
+    var recipients = testMode ? TEST_EMAIL_RECIPIENTS : [config.email];
+    var subject = (testMode ? '[TEST] ' : '') + getCurrentMonthName_() + ' ' + recap.supergroupName + ' ReflexAI Supergroup Recap';
+
+    MailApp.sendEmail({
+      to: recipients.join(','),
+      subject: subject,
+      body: buildSeniorLeadershipRecapText_(recap, testMode, config),
+      htmlBody: buildSeniorLeadershipRecapHtml_(recap, testMode, config)
+    });
+
+    sentCount++;
   });
 
   SpreadsheetApp.getUi().alert(
-    'Senior leadership recap sent.\n\nRecipients: ' +
-    recipients.join(', ') +
-    '\nRows included: ' +
-    recap.totalRows
+    (testMode ? 'Test senior leader recaps sent.' : 'Senior leader recaps sent.') +
+    '\n\nEmails sent: ' +
+    sentCount +
+    '\nRecipients: ' +
+    (testMode ? TEST_EMAIL_RECIPIENTS.join(', ') : 'configured senior leaders by supergroup')
   );
+}
+
+function filterRowsForSupergroup_(rows, supergroupName, runSettings) {
+  var target = normalizePersonKey_(supergroupName);
+
+  return rows.filter(function(row) {
+    var rowSupergroup = deriveSupergroupName_(getJourneyNameForRow_(row, runSettings || {}));
+    return normalizePersonKey_(rowSupergroup) === target;
+  });
 }
 
 function getSeniorLeaderRecipients_(spreadsheet) {
@@ -1035,15 +1076,18 @@ function getManagerRecapKey_(managerName, managerEmail) {
   return String(managerEmail || normalizedName || 'Unassigned').toLowerCase().trim();
 }
 
-function buildSeniorLeadershipRecapText_(recap, testMode) {
+function buildSeniorLeadershipRecapText_(recap, testMode, recipientConfig) {
   var lines = [];
 
   if (testMode) {
     lines.push('TEST MODE - Senior leadership recap preview.');
+    if (recipientConfig && recipientConfig.email) {
+      lines.push('This email would have gone to: ' + recipientConfig.email);
+    }
     lines.push('');
   }
 
-  lines.push('Hi Senior Leaders,');
+  lines.push('Hi ' + ((recipientConfig && recipientConfig.leaderName) || 'Senior Leaders') + ',');
   lines.push('');
   lines.push('Below is the ' + getCurrentMonthName_() + ' ReflexAI recap thus far for ' + recap.supergroupName + '.');
   lines.push('');
@@ -1075,9 +1119,11 @@ function buildSeniorLeadershipRecapText_(recap, testMode) {
   return lines.join('\n');
 }
 
-function buildSeniorLeadershipRecapHtml_(recap, testMode) {
-  return (testMode ? '<p><strong>TEST MODE</strong> - Senior leadership recap preview.</p>' : '') +
-    '<p>Hi Senior Leaders,</p>' +
+function buildSeniorLeadershipRecapHtml_(recap, testMode, recipientConfig) {
+  return (testMode ? '<p><strong>TEST MODE</strong> - Senior leadership recap preview.' +
+      (recipientConfig && recipientConfig.email ? ' This email would have gone to: ' + escapeHtml_(recipientConfig.email) + '.' : '') +
+      '</p>' : '') +
+    '<p>Hi ' + escapeHtml_((recipientConfig && recipientConfig.leaderName) || 'Senior Leaders') + ',</p>' +
     '<p>Below is the ' + escapeHtml_(getCurrentMonthName_()) + ' ReflexAI recap thus far for ' + escapeHtml_(recap.supergroupName) + '.</p>' +
     buildLeadershipCountsTable_(recap) +
     buildSimulationAverageTable_(recap.simulationAverages) +
