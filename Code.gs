@@ -683,7 +683,7 @@ function sendManagerExceptionEmails_(testMode) {
 
   var grouped = {};
   var skippedAlreadyManagerSent = 0;
-  var skippedAlreadyTestSent = 0;
+  var previouslyTestSent = 0;
   var skippedNoManagerEmail = 0;
   values.slice(1).forEach(function(row, zeroBasedOffset) {
     var sheetRowNumber = zeroBasedOffset + 2;
@@ -702,8 +702,7 @@ function sendManagerExceptionEmails_(testMode) {
     }
 
     if (testMode && testSentStatus === 'y') {
-      skippedAlreadyTestSent++;
-      return;
+      previouslyTestSent++;
     }
 
     if (!managerEmail) {
@@ -735,7 +734,7 @@ function sendManagerExceptionEmails_(testMode) {
     SpreadsheetApp.getUi().alert(
       'No unsent ' + (testMode ? 'test ' : '') + 'manager notifications found.\n\n' +
       'Already manager-sent rows skipped: ' + skippedAlreadyManagerSent + '\n' +
-      (testMode ? 'Already test-sent rows skipped: ' + skippedAlreadyTestSent + '\n' : '') +
+      (testMode ? 'Previously test-sent rows included for retest: ' + previouslyTestSent + '\n' : '') +
       'Rows missing manager email: ' + skippedNoManagerEmail
     );
     return;
@@ -782,7 +781,7 @@ function sendManagerExceptionEmails_(testMode) {
     '\n\nManager batches emailed: ' + sentCount +
     '\nException rows marked ' + (testMode ? 'test sent' : 'manager sent') + ': ' + rowCount +
     '\nAlready manager-sent rows skipped: ' + skippedAlreadyManagerSent +
-    (testMode ? '\nAlready test-sent rows skipped: ' + skippedAlreadyTestSent : '') +
+    (testMode ? '\nPreviously test-sent rows included for retest: ' + previouslyTestSent : '') +
     '\nRows missing manager email: ' + skippedNoManagerEmail
   );
 }
@@ -906,11 +905,16 @@ function appendPlainTextSection_(lines, title, groups) {
   lines.push('');
 
   groups.forEach(function(group) {
-    lines.push(group.repName + ' | ' + group.journeyName);
-    lines.push('Simulations: ' + group.simulations.map(function(item) { return item.simulationName; }).join(', '));
-    lines.push('Statuses: ' + group.simulations.map(function(item) { return item.simulationName + ': ' + item.status; }).join('; '));
-    lines.push('Scores: ' + group.simulations.map(function(item) { return item.simulationName + ': ' + formatScore_(item.score); }).join('; '));
-    lines.push('Follow-up Action: ' + summarizeActions_(group.simulations));
+    group.simulations.forEach(function(item, index) {
+      lines.push([
+        index === 0 ? group.repName : '',
+        index === 0 ? group.journeyName : '',
+        item.simulationName,
+        item.status,
+        formatScore_(item.score),
+        index === 0 ? summarizeActions_(group.simulations) : ''
+      ].join(' | '));
+    });
     lines.push('');
   });
 }
@@ -922,15 +926,26 @@ function buildHtmlSection_(title, groups, useScoreGradient) {
     var rowStyle = useScoreGradient
       ? ' style="background-color:' + scoreGradientColor_(group.minScorePercent) + ';"'
       : '';
+    var rowspan = group.simulations.length;
+    var action = summarizeActions_(group.simulations);
 
-    return '<tr' + rowStyle + '>' +
-      '<td>' + escapeHtml_(group.repName) + '</td>' +
-      '<td>' + escapeHtml_(group.journeyName) + '</td>' +
-      '<td>' + group.simulations.map(function(item) { return escapeHtml_(item.simulationName); }).join('<br>') + '</td>' +
-      '<td>' + group.simulations.map(function(item) { return escapeHtml_(item.simulationName + ': ' + item.status); }).join('<br>') + '</td>' +
-      '<td>' + group.simulations.map(function(item) { return escapeHtml_(item.simulationName + ': ' + formatScore_(item.score)); }).join('<br>') + '</td>' +
-      '<td>' + escapeHtml_(summarizeActions_(group.simulations)) + '</td>' +
-      '</tr>';
+    return group.simulations.map(function(item, index) {
+      var leadingCells = index === 0
+        ? '<td rowspan="' + rowspan + '">' + escapeHtml_(group.repName) + '</td>' +
+          '<td rowspan="' + rowspan + '">' + escapeHtml_(group.journeyName) + '</td>'
+        : '';
+      var actionCell = index === 0
+        ? '<td rowspan="' + rowspan + '">' + escapeHtml_(action) + '</td>'
+        : '';
+
+      return '<tr' + rowStyle + '>' +
+        leadingCells +
+        '<td>' + escapeHtml_(item.simulationName) + '</td>' +
+        '<td>' + escapeHtml_(item.status) + '</td>' +
+        '<td>' + escapeHtml_(formatScore_(item.score)) + '</td>' +
+        actionCell +
+        '</tr>';
+    }).join('');
   }).join('');
 
   return '<h3>' + escapeHtml_(title) + '</h3>' +
