@@ -1,6 +1,6 @@
 var CSV_DUMP_SHEET_NAME = 'ReflexAI CSV Dump';
-var MANAGER_ROSTER_SHEET_NAME = 'Manager Roster';
 var LOOKER_MANAGER_LOOKUP_SHEET_NAME = 'Looker Manager Lookup';
+var MISSING_LOOKER_PAIRINGS_SHEET_NAME = 'Missing Looker Manager Pairing';
 var EXCEPTION_SHEET_NAME = 'Simulation Exceptions';
 var RUN_LOG_SHEET_NAME = 'Run Log';
 var RUN_SETTINGS_SHEET_NAME = 'Run Settings';
@@ -42,6 +42,10 @@ var LOOKER_MANAGER_LOOKUP_HEADERS = [
   'Group'
 ];
 
+var MISSING_LOOKER_PAIRINGS_HEADERS = [
+  'Representative'
+];
+
 var EXCEPTION_HEADERS = [
   'Report Run At',
   'Representative',
@@ -63,14 +67,14 @@ var EXCEPTION_HEADERS = [
 function onOpen() {
   SpreadsheetApp.getUi()
     .createMenu('ReflexAI Reporting')
-    .addItem('Create setup sheets', 'createSetupSheets')
-    .addItem('Connect Looker manager import', 'connectLookerManagerImport')
-    .addItem('Set current journey name', 'setCurrentJourneyName')
-    .addItem('Run report from CSV dump now', 'runWeeklySimulationExceptionReport')
-    .addItem('Test senior leadership recap to Aaron/Bobby', 'sendTestSeniorLeadershipRecap')
-    .addItem('Email senior leadership recap', 'sendSeniorLeadershipRecap')
-    .addItem('Test email batches to Aaron/Robert', 'sendTestManagerExceptionEmails')
-    .addItem('Email managers current exceptions', 'sendManagerExceptionEmails')
+    .addItem('Set Up Sheets', 'createSetupSheets')
+    .addItem('Connect Looker Report', 'connectLookerManagerImport')
+    .addItem('Set Current Journey Name', 'setCurrentJourneyName')
+    .addItem('Run CSV Dump', 'runWeeklySimulationExceptionReport')
+    .addItem('Test Manager Email', 'sendTestManagerExceptionEmails')
+    .addItem('Test Senior Leader Email', 'sendTestSeniorLeadershipRecap')
+    .addItem('Send Manager Email', 'sendManagerExceptionEmails')
+    .addItem('Send Senior Leader Email', 'sendSeniorLeadershipRecap')
     .addToUi();
 }
 
@@ -78,8 +82,8 @@ function createSetupSheets() {
   var spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
 
   createSheetWithHeaders_(spreadsheet, CSV_DUMP_SHEET_NAME, CSV_DUMP_HEADERS);
-  getOrCreateSheet_(spreadsheet, MANAGER_ROSTER_SHEET_NAME);
   createSheetWithHeaders_(spreadsheet, LOOKER_MANAGER_LOOKUP_SHEET_NAME, LOOKER_MANAGER_LOOKUP_HEADERS);
+  createSheetWithHeaders_(spreadsheet, MISSING_LOOKER_PAIRINGS_SHEET_NAME, MISSING_LOOKER_PAIRINGS_HEADERS);
   createSheetWithHeaders_(spreadsheet, EXCEPTION_SHEET_NAME, EXCEPTION_HEADERS);
   createRunSettingsSheet_(spreadsheet);
 
@@ -148,9 +152,10 @@ function runWeeklySimulationExceptionReport() {
     return;
   }
 
-  var managerRoster = buildManagerRoster_(spreadsheet);
+  var managerRoster = buildLookerManagerRoster_(spreadsheet);
   var runSettings = getRunSettings_(spreadsheet);
   var exceptions = [];
+  var missingLookerPairings = {};
 
   csvRows.forEach(function(row) {
     var userName = getValue_(row, 'User Name');
@@ -158,6 +163,17 @@ function runWeeklySimulationExceptionReport() {
     var simulationName = getValue_(row, 'Simulation Name');
     var status = getValue_(row, 'Status');
     var score = getValue_(row, 'Best Score (%)');
+    var managerInfo =
+      managerRoster[String(userEmail).toLowerCase().trim()] ||
+      managerRoster[normalizePersonKey_(userName)] ||
+      {};
+
+    if (!managerInfo.managerName) {
+      if (String(userName || '').trim()) {
+        missingLookerPairings[String(userName).trim()] = true;
+      }
+      return;
+    }
 
     var scoreNumber = parseScore_(score);
     var statusLower = String(status).toLowerCase().trim();
@@ -187,11 +203,6 @@ function runWeeklySimulationExceptionReport() {
       return;
     }
 
-    var managerInfo =
-      managerRoster[String(userEmail).toLowerCase().trim()] ||
-      managerRoster[String(userName).toLowerCase().trim()] ||
-      {};
-
     exceptions.push({
       reportRunAt: new Date(),
       repName: userName,
@@ -208,6 +219,7 @@ function runWeeklySimulationExceptionReport() {
     });
   });
 
+  writeMissingLookerPairings_(spreadsheet, Object.keys(missingLookerPairings));
   writeExceptions_(spreadsheet, exceptions);
   writeRunLog_(spreadsheet, csvRows.length, exceptions.length, false);
 
@@ -215,7 +227,9 @@ function runWeeklySimulationExceptionReport() {
     'Report complete.\n\nRows checked: ' +
     csvRows.length +
     '\nExceptions found: ' +
-    exceptions.length
+    exceptions.length +
+    '\nMissing Looker pairings excluded: ' +
+    Object.keys(missingLookerPairings).length
   );
 }
 
@@ -388,7 +402,7 @@ function sendSeniorLeadershipRecap_(recipients, testMode) {
     return;
   }
 
-  var managerRoster = buildManagerRoster_(spreadsheet);
+  var managerRoster = buildLookerManagerRoster_(spreadsheet);
   var runSettings = getRunSettings_(spreadsheet);
   var recap = buildSeniorLeadershipRecap_(csvRows, managerRoster, runSettings);
   var subject = (testMode ? '[TEST] ' : '') + getCurrentMonthName_() + ' ' + recap.supergroupName + ' ReflexAI Supergroup Recap';
@@ -461,8 +475,13 @@ function buildSeniorLeadershipRecap_(csvRows, managerRoster, runSettings) {
     var category = classifySimulationOutcome_(status, score);
     var managerInfo =
       managerRoster[String(userEmail).toLowerCase().trim()] ||
-      managerRoster[String(userName).toLowerCase().trim()] ||
+      managerRoster[normalizePersonKey_(userName)] ||
       {};
+
+    if (!managerInfo.managerName) {
+      return;
+    }
+
     var managerName = normalizeManagerDisplayName_(managerInfo.managerName || 'Unassigned');
     var managerEmail = managerInfo.managerEmail || '';
     var managerKey = getManagerRecapKey_(managerName, managerEmail);
@@ -721,100 +740,55 @@ function buildManagerRecapTable_(managerRows) {
     '<tbody>' + rows + '</tbody></table>';
 }
 
-function buildManagerRoster_(spreadsheet) {
-  var rows = readSheetRows_(spreadsheet, MANAGER_ROSTER_SHEET_NAME);
-  var roster = {};
-  var nameToEmail = {};
-
-  rows.forEach(function(row) {
-    var name = String(getValue_(row, 'Name')).toLowerCase().trim();
-    var email = String(getValue_(row, 'Email')).toLowerCase().trim();
-    var normalizedName = normalizePersonKey_(name);
-
-    if (name && email) {
-      nameToEmail[name] = email;
-    }
-
-    if (normalizedName && email) {
-      nameToEmail[normalizedName] = email;
-    }
-  });
-
-  var lookerManagerOverrides = buildLookerManagerOverrides_(spreadsheet, nameToEmail);
-
-  rows.forEach(function(row) {
-    var repEmail = String(getValue_(row, 'Email')).toLowerCase().trim();
-    var repName = String(getValue_(row, 'Name')).toLowerCase().trim();
-    var repDisplayName = getValue_(row, 'Name');
-
-    var managerName = getValue_(row, 'Manager');
-    var seniorName = getValue_(row, 'Senior');
-
-    var managerEmail = nameToEmail[normalizePersonKey_(managerName)] || '';
-    var seniorEmail = nameToEmail[normalizePersonKey_(seniorName)] || '';
-
-    var managerInfo = {
-      managerName: managerName,
-      managerEmail: managerEmail,
-      seniorName: seniorName,
-      seniorEmail: seniorEmail
-    };
-
-    managerInfo = applyLookerJohnRiordanOverride_(managerInfo, repDisplayName, lookerManagerOverrides);
-
-    if (repEmail) {
-      roster[repEmail] = managerInfo;
-    }
-
-    if (repName) {
-      roster[repName] = managerInfo;
-    }
-  });
-
-  return roster;
-}
-
-function buildLookerManagerOverrides_(spreadsheet, nameToEmail) {
+function buildLookerManagerRoster_(spreadsheet) {
   var rows = readSheetRows_(spreadsheet, LOOKER_MANAGER_LOOKUP_SHEET_NAME);
-  var overrides = {};
+  var roster = {};
 
   rows.forEach(function(row) {
-    var personName = getValue_(row, 'Manager');
-    var regionalDirectorName = getFirstNonBlankValue_(row, [
+    var repName = getValue_(row, 'Manager');
+    var repEmail = getFirstNonBlankValue_(row, [
+      'Email',
+      'Employee Email',
+      'Manager Email'
+    ]);
+    var managerName = getFirstNonBlankValue_(row, [
       'Regional Director',
       'Regional Directo',
       'Regional Dir',
       'Senior Leader'
     ]);
-    var personKey = normalizePersonKey_(personName);
 
-    if (!personKey || !regionalDirectorName) {
+    if (!repName || !managerName) {
       return;
     }
 
-    overrides[personKey] = {
-      managerName: regionalDirectorName,
-      managerEmail: nameToEmail[normalizePersonKey_(regionalDirectorName)] || ''
+    var managerEmail = getFirstNonBlankValue_(row, [
+      'Regional Director Email',
+      'Regional Directo Email',
+      'Regional Dir Email',
+      'Senior Leader Email'
+    ]) || emailFromName_(managerName);
+
+    var managerInfo = {
+      managerName: managerName,
+      managerEmail: managerEmail,
+      seniorName: managerName,
+      seniorEmail: managerEmail
     };
+
+    var normalizedRepName = normalizePersonKey_(repName);
+    if (normalizedRepName) {
+      roster[normalizedRepName] = managerInfo;
+    }
+
+    repEmail = String(repEmail || '').toLowerCase().trim();
+
+    if (repEmail && repEmail.indexOf('@') !== -1) {
+      roster[repEmail] = managerInfo;
+    }
   });
 
-  return overrides;
-}
-
-function applyLookerJohnRiordanOverride_(managerInfo, repName, lookerManagerOverrides) {
-  if (!isJohnRiordanName_(managerInfo.managerName)) {
-    return managerInfo;
-  }
-
-  var override = lookerManagerOverrides[normalizePersonKey_(repName)];
-  if (!override || !override.managerName) {
-    return managerInfo;
-  }
-
-  managerInfo.managerName = override.managerName;
-  managerInfo.managerEmail = override.managerEmail || managerInfo.managerEmail;
-  managerInfo.lookerOverrideApplied = true;
-  return managerInfo;
+  return roster;
 }
 
 function createRunSettingsSheet_(spreadsheet) {
@@ -900,6 +874,31 @@ function getFirstNonBlankValue_(row, keys) {
   }
 
   return '';
+}
+
+function writeMissingLookerPairings_(spreadsheet, representativeNames) {
+  var sheet = getOrCreateSheet_(spreadsheet, MISSING_LOOKER_PAIRINGS_SHEET_NAME);
+  var names = representativeNames
+    .filter(function(name) {
+      return String(name || '').trim();
+    })
+    .sort(function(a, b) {
+      return String(a).localeCompare(String(b));
+    });
+
+  sheet.clear();
+  sheet.getRange(1, 1, 1, MISSING_LOOKER_PAIRINGS_HEADERS.length).setValues([MISSING_LOOKER_PAIRINGS_HEADERS]);
+  sheet.setFrozenRows(1);
+
+  if (!names.length) {
+    sheet.autoResizeColumns(1, MISSING_LOOKER_PAIRINGS_HEADERS.length);
+    return;
+  }
+
+  sheet.getRange(2, 1, names.length, 1).setValues(names.map(function(name) {
+    return [name];
+  }));
+  sheet.autoResizeColumns(1, MISSING_LOOKER_PAIRINGS_HEADERS.length);
 }
 
 function writeExceptions_(spreadsheet, exceptions) {
@@ -1362,6 +1361,20 @@ function formatPercent_(count, total) {
   }
 
   return Math.round((count / total) * 100) + '%';
+}
+
+function emailFromName_(name) {
+  var parts = String(name || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9\s-]/g, '')
+    .split(/\s+/)
+    .filter(Boolean);
+
+  if (!parts.length) {
+    return '';
+  }
+
+  return parts.join('.') + '@varsitytutors.com';
 }
 
 function getCurrentMonthName_() {
