@@ -544,6 +544,7 @@ function isMonthlyJourney_(record, config) {
 function writeExceptionRows_(config, exceptions) {
   var spreadsheet = getSpreadsheet_(config);
   var sheet = getOrCreateSheet_(spreadsheet, EXCEPTION_SHEET_NAME);
+  var existingTracking = readExistingExceptionTracking_(sheet);
   sheet.clear();
   sheet.getRange(1, 1, 1, EXCEPTION_HEADERS.length).setValues([EXCEPTION_HEADERS]);
   sheet.setFrozenRows(1);
@@ -564,15 +565,62 @@ function writeExceptionRows_(config, exceptions) {
       row.status,
       row.score,
       row.action,
-      '',
-      '',
-      ''
+      existingTracking[exceptionTrackingKey_(row)] ? existingTracking[exceptionTrackingKey_(row)].managerEmailSent : '',
+      existingTracking[exceptionTrackingKey_(row)] ? existingTracking[exceptionTrackingKey_(row)].managerEmailSentAt : '',
+      existingTracking[exceptionTrackingKey_(row)] ? existingTracking[exceptionTrackingKey_(row)].testSent : ''
     ];
   });
 
   sheet.getRange(2, 1, values.length, EXCEPTION_HEADERS.length).setValues(values);
   sheet.getRange(2, 11, values.length, 1).setNumberFormat('0%');
+  sheet.getRange(2, 14, values.length, 1).setNumberFormat('m/d/yyyy h:mm AM/PM');
   sheet.autoResizeColumns(1, EXCEPTION_HEADERS.length);
+}
+
+function readExistingExceptionTracking_(sheet) {
+  if (!sheet || sheet.getLastRow() < 2) return {};
+
+  var values = sheet.getDataRange().getValues();
+  var headers = values[0].map(function(header) {
+    return String(header).trim();
+  });
+  var columnIndex = buildColumnIndex_(headers);
+  var required = ['Representative Email', 'Journey', 'Simulation', 'Completion Status', 'Required Follow-up Action'];
+  var hasRequired = required.every(function(header) {
+    return columnIndex[header] !== undefined;
+  });
+  if (!hasRequired) return {};
+
+  var tracking = {};
+  values.slice(1).forEach(function(row) {
+    var key = exceptionTrackingKey_({
+      repEmail: row[columnIndex['Representative Email']],
+      journeyName: row[columnIndex['Journey']],
+      simulationName: row[columnIndex['Simulation']],
+      status: row[columnIndex['Completion Status']],
+      action: row[columnIndex['Required Follow-up Action']]
+    });
+
+    tracking[key] = {
+      managerEmailSent: columnIndex['Manager Email Sent'] !== undefined ? row[columnIndex['Manager Email Sent']] : '',
+      managerEmailSentAt: columnIndex['Manager Email Sent At'] !== undefined ? row[columnIndex['Manager Email Sent At']] : '',
+      testSent: columnIndex['Test Sent'] !== undefined ? row[columnIndex['Test Sent']] : ''
+    };
+  });
+
+  return tracking;
+}
+
+function exceptionTrackingKey_(row) {
+  return [
+    row.repEmail,
+    row.journeyName,
+    row.simulationName,
+    row.status,
+    row.action
+  ].map(function(value) {
+    return String(value || '').toLowerCase().trim();
+  }).join('|');
 }
 
 function writeRunLog_(config, reportRunAt, recordsProcessed, exceptionsFound) {
