@@ -902,7 +902,7 @@ function accentColorForSection_(eyebrow, title) {
 
   if (text.indexOf('not cleared') !== -1 || text.indexOf('priority') !== -1) return COMPLETED_NOT_CLEARED_COLOR;
   if (text.indexOf('action') !== -1 || text.indexOf('not started') !== -1) return NOT_STARTED_COLOR;
-  if (text.indexOf('performance') !== -1 || text.indexOf('average') !== -1 || text.indexOf('detail') !== -1) return COMPLETED_CLEARED_COLOR;
+  if (text.indexOf('performance') !== -1 || text.indexOf('average') !== -1 || text.indexOf('detail') !== -1) return '#20d5d2';
   if (text.indexOf('snapshot') !== -1 || text.indexOf('cleared') !== -1) return COMPLETED_CLEARED_COLOR;
   if (text.indexOf('manager') !== -1) return '#7957ff';
   return '#6a62d2';
