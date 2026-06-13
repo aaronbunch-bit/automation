@@ -737,8 +737,14 @@ function emailShell_(title, subtitle, bodyHtml) {
         '<div style="height:12px;background:linear-gradient(90deg,#ffcc33 0%,#ff6b9c 25%,#ff3ec8 48%,#7957ff 72%,#20d5d2 100%);"></div>' +
         '<div style="background:linear-gradient(135deg,#24205f 0%,#353082 68%,#5c4be8 100%);color:#ffffff;padding:30px 34px;">' +
           '<div style="display:inline-block;background:rgba(255,255,255,0.12);border:1px solid rgba(255,255,255,0.28);border-radius:999px;padding:6px 12px;font-size:12px;letter-spacing:1.2px;text-transform:uppercase;color:#ffffff;font-weight:800;">Varsity Tutors</div>' +
+          '<div style="display:inline-block;margin-left:8px;background:rgba(32,213,210,0.14);border:1px solid rgba(32,213,210,0.45);border-radius:999px;padding:6px 12px;font-size:12px;color:#dffefe;font-weight:800;">ReflexAI Signals</div>' +
           '<div style="font-size:28px;line-height:34px;font-weight:800;margin-top:8px;">' + escapeHtml_(title) + '</div>' +
           '<div style="font-size:14px;line-height:20px;color:#e8e6ff;margin-top:8px;">' + escapeHtml_(subtitle || '') + '</div>' +
+          '<table width="100%" cellpadding="0" cellspacing="0" style="margin-top:18px;border-collapse:collapse;"><tr>' +
+            '<td style="width:33%;padding-right:8px;"><div style="height:5px;border-radius:999px;background:#ffcc33;"></div></td>' +
+            '<td style="width:34%;padding:0 8px;"><div style="height:5px;border-radius:999px;background:#ff3ec8;"></div></td>' +
+            '<td style="width:33%;padding-left:8px;"><div style="height:5px;border-radius:999px;background:#20d5d2;"></div></td>' +
+          '</tr></table>' +
         '</div>' +
         '<div style="padding:28px 32px;background:#f7f5ff;">' + bodyHtml + '</div>' +
       '</div>' +
@@ -762,9 +768,12 @@ function introCard_(title, message) {
 }
 
 function sectionCard_(eyebrow, title, contentHtml) {
-  return '<div style="background:#ffffff;border:1px solid #dedaf8;border-radius:18px;padding:0;margin:0 0 22px 0;overflow:hidden;box-shadow:0 8px 22px rgba(36,32,95,0.08);">' +
+  var accent = accentColorForSection_(eyebrow, title);
+
+  return '<div style="background:#ffffff;border:1px solid #dedaf8;border-radius:18px;padding:0;margin:0 0 22px 0;overflow:hidden;box-shadow:0 10px 26px rgba(36,32,95,0.10);">' +
+    '<div style="height:5px;background:' + accent + ';"></div>' +
     '<div style="padding:16px 20px;border-bottom:1px solid #ebe8ff;background:linear-gradient(90deg,#ffffff 0%,#faf8ff 100%);">' +
-      '<div style="font-size:11px;letter-spacing:1.1px;text-transform:uppercase;color:#6a62d2;font-weight:800;">' + escapeHtml_(eyebrow || '') + '</div>' +
+      '<div style="font-size:11px;letter-spacing:1.1px;text-transform:uppercase;color:' + accent + ';font-weight:900;">' + escapeHtml_(eyebrow || '') + '</div>' +
       '<div style="font-size:20px;line-height:26px;color:#24205f;font-weight:800;margin-top:4px;">' + escapeHtml_(title) + '</div>' +
     '</div>' +
     '<div style="padding:18px 20px;">' + contentHtml + '</div>' +
@@ -776,6 +785,7 @@ function metricTiles_(tiles) {
     tiles.map(function(tile) {
       return '<td style="width:33.33%;padding:6px;vertical-align:top;">' +
         '<div style="border:1px solid #ebe8ff;border-radius:16px;padding:18px 12px;background:linear-gradient(180deg,#ffffff 0%,#fbfaff 100%);text-align:center;box-shadow:0 5px 14px rgba(36,32,95,0.06);">' +
+          '<div style="height:4px;border-radius:999px;background:' + tile.color + ';margin:0 auto 12px auto;width:52px;"></div>' +
           '<div style="font-size:28px;font-weight:900;color:' + tile.color + ';line-height:32px;text-align:center;">' + escapeHtml_(String(tile.value)) + '</div>' +
           '<div style="font-size:12px;line-height:17px;color:#4d49a3;font-weight:700;margin-top:6px;">' + escapeHtml_(tile.label) + '</div>' +
         '</div>' +
@@ -785,16 +795,29 @@ function metricTiles_(tiles) {
 }
 
 function styledTable_(headers, bodyRowsHtml) {
-  var styledBody = bodyRowsHtml.replace(/<td([^>]*)>/g, '<td$1 style="padding:10px;border-bottom:1px solid #ebe8ff;vertical-align:middle;">');
+  var styledBody = bodyRowsHtml
+    .replace(/<tr>/g, '<tr style="background:#ffffff;">')
+    .replace(/<td([^>]*)>/g, '<td$1 style="padding:11px 10px;border-bottom:1px solid #ebe8ff;vertical-align:middle;">');
 
   return '<table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;font-size:13px;color:#24205f;">' +
     '<thead><tr>' +
       headers.map(function(header) {
-        return '<th style="text-align:left;background:#f1efff;color:#24205f;padding:11px 10px;border-bottom:1px solid #dedaf8;font-weight:800;">' + escapeHtml_(header) + '</th>';
+        return '<th style="text-align:left;background:linear-gradient(180deg,#f3f0ff 0%,#ebe8ff 100%);color:#24205f;padding:12px 10px;border-bottom:1px solid #dedaf8;font-weight:900;">' + escapeHtml_(header) + '</th>';
       }).join('') +
     '</tr></thead>' +
     '<tbody>' + styledBody + '</tbody>' +
     '</table>';
+}
+
+function accentColorForSection_(eyebrow, title) {
+  var text = String(eyebrow || '') + ' ' + String(title || '');
+  text = text.toLowerCase();
+
+  if (text.indexOf('priority') !== -1 || text.indexOf('not cleared') !== -1) return '#f59e0b';
+  if (text.indexOf('action') !== -1 || text.indexOf('not started') !== -1) return '#ef4444';
+  if (text.indexOf('snapshot') !== -1 || text.indexOf('cleared') !== -1) return '#1f9d55';
+  if (text.indexOf('manager') !== -1) return '#7957ff';
+  return '#6a62d2';
 }
 
 function buildDirectorEmailHtml_(recap, testMode) {
@@ -1827,8 +1850,8 @@ function buildHtmlSection_(title, groups, useScoreGradient) {
       return '<tr' + rowStyle + '>' +
         leadingCells +
         '<td>' + escapeHtml_(item.simulationName) + '</td>' +
-        '<td>' + escapeHtml_(item.status) + '</td>' +
-        '<td>' + escapeHtml_(formatScore_(item.score)) + '</td>' +
+        '<td>' + statusBadge_(item.status) + '</td>' +
+        '<td>' + scoreBadge_(item.score) + '</td>' +
         actionCell +
         '</tr>';
     }).join('');
@@ -1839,6 +1862,42 @@ function buildHtmlSection_(title, groups, useScoreGradient) {
     title,
     styledTable_(['Representative', 'Journey', 'Simulation', 'Status', 'Score', 'Follow-up Action'], tableRows)
   );
+}
+
+function statusBadge_(status) {
+  var value = String(status || '').trim() || 'No Status';
+  var normalized = value.toLowerCase();
+  var color = '#6a62d2';
+  var background = '#f1efff';
+
+  if (normalized.indexOf('completed') !== -1) {
+    color = '#1f9d55';
+    background = '#e7f7ec';
+  } else if (normalized.indexOf('not') !== -1 || normalized.indexOf('progress') !== -1 || normalized.indexOf('started') !== -1) {
+    color = '#ef4444';
+    background = '#fff1f1';
+  }
+
+  return '<span style="display:inline-block;border-radius:999px;background:' + background + ';color:' + color + ';font-weight:800;font-size:12px;padding:5px 9px;">' + escapeHtml_(value) + '</span>';
+}
+
+function scoreBadge_(score) {
+  var scorePercent = parseEmailScorePercent_(score);
+  var value = formatScore_(score);
+  var color = '#6a62d2';
+  var background = '#f1efff';
+
+  if (isFinite(scorePercent)) {
+    if (scorePercent >= PASSING_SCORE_PERCENT) {
+      color = '#1f9d55';
+      background = '#e7f7ec';
+    } else {
+      color = '#f59e0b';
+      background = '#fff7e6';
+    }
+  }
+
+  return '<span style="display:inline-block;border-radius:999px;background:' + background + ';color:' + color + ';font-weight:900;font-size:12px;padding:5px 9px;">' + escapeHtml_(value) + '</span>';
 }
 
 function summarizeActions_(simulations) {
