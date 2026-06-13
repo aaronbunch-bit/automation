@@ -800,14 +800,37 @@ function sectionCard_(eyebrow, title, contentHtml) {
 function metricTiles_(tiles) {
   return '<table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;"><tr>' +
     tiles.map(function(tile) {
+      var glow = hexToRgba_(tile.color, 0.18);
+      var wash = hexToRgba_(tile.color, 0.07);
+
       return '<td style="width:33.33%;padding:6px;vertical-align:top;">' +
-        '<div style="border:1px solid #ebe8ff;border-radius:16px;padding:18px 12px;background:linear-gradient(180deg,#ffffff 0%,#fbfaff 100%);text-align:center;box-shadow:0 5px 14px rgba(36,32,95,0.06);min-height:112px;">' +
-          '<div style="font-size:28px;font-weight:900;color:' + tile.color + ';line-height:32px;text-align:center;">' + escapeHtml_(String(tile.value)) + '</div>' +
-          '<div style="font-size:12px;line-height:17px;color:#4d49a3;font-weight:700;margin-top:6px;">' + escapeHtml_(tile.label) + '</div>' +
+        '<div style="border:1px solid ' + hexToRgba_(tile.color, 0.38) + ';border-radius:18px;padding:20px 14px;background:linear-gradient(180deg,#ffffff 0%,' + wash + ' 100%);text-align:center;box-shadow:0 14px 30px ' + glow + ';min-height:86px;">' +
+          '<div style="font-size:34px;font-weight:900;color:' + tile.color + ';line-height:38px;text-align:center;letter-spacing:-0.5px;">' + escapeHtml_(String(tile.value)) + '</div>' +
+          '<div style="font-size:13px;line-height:16px;color:#24205f;font-weight:900;margin-top:8px;letter-spacing:-0.1px;">' + escapeHtml_(shortMetricLabel_(tile.label)) + '</div>' +
         '</div>' +
       '</td>';
     }).join('') +
     '</tr></table>';
+}
+
+function shortMetricLabel_(label) {
+  if (label === COMPLETED_CLEARED_LABEL) return 'Cleared 80%';
+  if (label === COMPLETED_NOT_CLEARED_LABEL) return 'Not Cleared';
+  if (label === NOT_STARTED_LABEL) return 'Not Started';
+  return label;
+}
+
+function hexToRgba_(hex, alpha) {
+  var value = String(hex || '').replace('#', '');
+  if (value.length !== 6) {
+    return 'rgba(36,32,95,' + alpha + ')';
+  }
+
+  var red = parseInt(value.slice(0, 2), 16);
+  var green = parseInt(value.slice(2, 4), 16);
+  var blue = parseInt(value.slice(4, 6), 16);
+
+  return 'rgba(' + red + ',' + green + ',' + blue + ',' + alpha + ')';
 }
 
 function progressBar_(completedAbove, completedBelow, notStarted) {
