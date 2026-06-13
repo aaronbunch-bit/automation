@@ -20,6 +20,9 @@ var EMAIL_SUBTITLE = 'Varsity Tutors Quality Assurance Pillar';
 var COMPLETED_CLEARED_LABEL = 'Completed & Cleared 80% Threshold';
 var COMPLETED_NOT_CLEARED_LABEL = 'Completed & Not Cleared 80% Threshold';
 var NOT_STARTED_LABEL = 'Not Started';
+var COMPLETED_CLEARED_COLOR = '#20d5d2';
+var COMPLETED_NOT_CLEARED_COLOR = '#ffcc33';
+var NOT_STARTED_COLOR = '#ff3ec8';
 
 var TEST_EMAIL_RECIPIENTS = [
   'aaron.bunch@varsitytutors.com'
@@ -347,6 +350,11 @@ function sendManagerEmailBatches_(testMode) {
       return;
     }
 
+    if (isBlockedJohnRiordanEmail_(managerEmail)) {
+      skippedBlockedRecipients++;
+      return;
+    }
+
     if (!grouped[managerEmail]) {
       grouped[managerEmail] = {
         managerName: row[col['Manager']] || '',
@@ -357,7 +365,7 @@ function sendManagerEmailBatches_(testMode) {
 
     grouped[managerEmail].recipientEmails[managerEmail] = true;
     var seniorEmail = String(row[col['Senior / Team Lead Email']] || '').toLowerCase().trim();
-    if (seniorEmail) {
+    if (seniorEmail && isAllowedRecipientEmail_(seniorEmail)) {
       grouped[managerEmail].recipientEmails[seniorEmail] = true;
     }
 
@@ -814,14 +822,9 @@ function progressBar_(completedAbove, completedBelow, notStarted) {
 
   return '<div style="margin:16px 6px 4px 6px;">' +
     '<table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;"><tr>' +
-      '<td width="' + abovePct + '%" style="height:14px;background:#1f9d55;border-radius:999px 0 0 999px;font-size:1px;line-height:1px;">&nbsp;</td>' +
-      '<td width="' + belowPct + '%" style="height:14px;background:#f59e0b;font-size:1px;line-height:1px;">&nbsp;</td>' +
-      '<td width="' + notStartedPct + '%" style="height:14px;background:#ef4444;border-radius:0 999px 999px 0;font-size:1px;line-height:1px;">&nbsp;</td>' +
-    '</tr></table>' +
-    '<table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;margin-top:7px;font-size:11px;color:#4d49a3;"><tr>' +
-      '<td style="text-align:left;">' + COMPLETED_CLEARED_LABEL + '</td>' +
-      '<td style="text-align:center;">' + COMPLETED_NOT_CLEARED_LABEL + '</td>' +
-      '<td style="text-align:right;">' + NOT_STARTED_LABEL + '</td>' +
+      '<td width="' + abovePct + '%" style="height:14px;background:' + COMPLETED_CLEARED_COLOR + ';border-radius:999px 0 0 999px;font-size:1px;line-height:1px;">&nbsp;</td>' +
+      '<td width="' + belowPct + '%" style="height:14px;background:' + COMPLETED_NOT_CLEARED_COLOR + ';font-size:1px;line-height:1px;">&nbsp;</td>' +
+      '<td width="' + notStartedPct + '%" style="height:14px;background:' + NOT_STARTED_COLOR + ';border-radius:0 999px 999px 0;font-size:1px;line-height:1px;">&nbsp;</td>' +
     '</tr></table>' +
   '</div>';
 }
@@ -834,9 +837,12 @@ function managerSimulationAveragesHtml_(rows) {
     if (!bySimulation[simulationName]) {
       bySimulation[simulationName] = {
         total: 0,
-        count: 0
+        count: 0,
+        assignedCount: 0
       };
     }
+
+    bySimulation[simulationName].assignedCount++;
 
     var scorePercent = parseEmailScorePercent_(row.score);
     if (isFinite(scorePercent)) {
@@ -845,7 +851,13 @@ function managerSimulationAveragesHtml_(rows) {
     }
   });
 
-  var simulationNames = Object.keys(bySimulation).sort();
+  var simulationNames = Object.keys(bySimulation).sort(function(a, b) {
+    if (bySimulation[b].assignedCount !== bySimulation[a].assignedCount) {
+      return bySimulation[b].assignedCount - bySimulation[a].assignedCount;
+    }
+
+    return String(a).localeCompare(String(b));
+  }).slice(0, 3);
   if (!simulationNames.length) {
     return '';
   }
@@ -886,9 +898,10 @@ function accentColorForSection_(eyebrow, title) {
   var text = String(eyebrow || '') + ' ' + String(title || '');
   text = text.toLowerCase();
 
-  if (text.indexOf('priority') !== -1 || text.indexOf('not cleared') !== -1) return '#f59e0b';
-  if (text.indexOf('action') !== -1 || text.indexOf('not started') !== -1) return '#ef4444';
-  if (text.indexOf('snapshot') !== -1 || text.indexOf('cleared') !== -1) return '#1f9d55';
+  if (text.indexOf('not cleared') !== -1 || text.indexOf('priority') !== -1) return COMPLETED_NOT_CLEARED_COLOR;
+  if (text.indexOf('action') !== -1 || text.indexOf('not started') !== -1) return NOT_STARTED_COLOR;
+  if (text.indexOf('performance') !== -1 || text.indexOf('average') !== -1 || text.indexOf('detail') !== -1) return COMPLETED_CLEARED_COLOR;
+  if (text.indexOf('snapshot') !== -1 || text.indexOf('cleared') !== -1) return COMPLETED_CLEARED_COLOR;
   if (text.indexOf('manager') !== -1) return '#7957ff';
   return '#6a62d2';
 }
@@ -903,9 +916,9 @@ function buildDirectorEmailHtml_(recap, testMode) {
       'CONSUMER SALES SNAPSHOT',
       'Overall Simulation Counts',
       metricTiles_([
-        { label: COMPLETED_CLEARED_LABEL, value: formatCountPercent_(recap.company.completedAbove, recap.company.completedAbovePercent), color: '#1f9d55' },
-        { label: COMPLETED_NOT_CLEARED_LABEL, value: formatCountPercent_(recap.company.completedBelow, recap.company.completedBelowPercent), color: '#f59e0b' },
-        { label: NOT_STARTED_LABEL, value: formatCountPercent_(recap.company.notStarted, recap.company.notStartedPercent), color: '#ef4444' }
+        { label: COMPLETED_CLEARED_LABEL, value: formatCountPercent_(recap.company.completedAbove, recap.company.completedAbovePercent), color: COMPLETED_CLEARED_COLOR },
+        { label: COMPLETED_NOT_CLEARED_LABEL, value: formatCountPercent_(recap.company.completedBelow, recap.company.completedBelowPercent), color: COMPLETED_NOT_CLEARED_COLOR },
+        { label: NOT_STARTED_LABEL, value: formatCountPercent_(recap.company.notStarted, recap.company.notStartedPercent), color: NOT_STARTED_COLOR }
       ])
     ) +
     buildDirectorTable_('Supergroup Breakdown', recap.supergroupRows.concat([companySummaryRow_(recap.company)]), 'Supergroup') +
@@ -1335,9 +1348,9 @@ function buildLeadershipCountsTable_(recap) {
     'SUPERGROUP SNAPSHOT',
     'Overall Simulation Counts',
     metricTiles_([
-      { label: COMPLETED_CLEARED_LABEL, value: recap.counts.completedAbove, color: '#1f9d55' },
-      { label: COMPLETED_NOT_CLEARED_LABEL, value: recap.counts.completedBelow, color: '#f59e0b' },
-      { label: NOT_STARTED_LABEL, value: recap.counts.notStarted, color: '#ef4444' }
+      { label: COMPLETED_CLEARED_LABEL, value: recap.counts.completedAbove, color: COMPLETED_CLEARED_COLOR },
+      { label: COMPLETED_NOT_CLEARED_LABEL, value: recap.counts.completedBelow, color: COMPLETED_NOT_CLEARED_COLOR },
+      { label: NOT_STARTED_LABEL, value: recap.counts.notStarted, color: NOT_STARTED_COLOR }
     ]) +
     progressBar_(recap.counts.completedAbove, recap.counts.completedBelow, recap.counts.notStarted)
   );
@@ -1798,9 +1811,9 @@ function buildManagerEmailHtml_(managerName, rows, testMode, intendedManagerEmai
       'TEAM SNAPSHOT',
       'Follow-Up Items Included',
       metricTiles_([
-        { label: COMPLETED_NOT_CLEARED_LABEL, value: lowScoreCount, color: '#f59e0b' },
-        { label: NOT_STARTED_LABEL, value: incompleteCount, color: '#ef4444' },
-        { label: 'Total Follow-Up Items', value: lowScoreCount + incompleteCount, color: '#6a62d2' }
+        { label: COMPLETED_CLEARED_LABEL, value: 0, color: COMPLETED_CLEARED_COLOR },
+        { label: COMPLETED_NOT_CLEARED_LABEL, value: lowScoreCount, color: COMPLETED_NOT_CLEARED_COLOR },
+        { label: NOT_STARTED_LABEL, value: incompleteCount, color: NOT_STARTED_COLOR }
       ]) +
       progressBar_(0, lowScoreCount, incompleteCount) +
       managerSimulationAveragesHtml_(rows)
@@ -1956,11 +1969,11 @@ function statusBadge_(status) {
   var background = '#f1efff';
 
   if (normalized.indexOf('completed') !== -1) {
-    color = '#1f9d55';
-    background = '#e7f7ec';
+    color = '#138c8a';
+    background = '#e6fbfb';
   } else if (normalized.indexOf('not') !== -1 || normalized.indexOf('progress') !== -1 || normalized.indexOf('started') !== -1) {
-    color = '#ef4444';
-    background = '#fff1f1';
+    color = '#b91c85';
+    background = '#fff0fb';
   }
 
   return '<span style="display:inline-block;border-radius:999px;background:' + background + ';color:' + color + ';font-weight:800;font-size:12px;padding:5px 9px;white-space:nowrap;">' + escapeHtml_(value) + '</span>';
@@ -1974,12 +1987,15 @@ function scoreBadge_(score) {
 
   if (isFinite(scorePercent)) {
     if (scorePercent >= PASSING_SCORE_PERCENT) {
-      color = '#1f9d55';
-      background = '#e7f7ec';
+      color = '#138c8a';
+      background = '#e6fbfb';
     } else {
-      color = '#f59e0b';
-      background = '#fff7e6';
+      color = '#9a6a00';
+      background = '#fff8df';
     }
+  } else {
+    color = '#b91c85';
+    background = '#fff0fb';
   }
 
   return '<span style="display:inline-block;border-radius:999px;background:' + background + ';color:' + color + ';font-weight:900;font-size:12px;padding:5px 9px;white-space:nowrap;">' + escapeHtml_(value) + '</span>';
@@ -2197,7 +2213,7 @@ function parseScore_(value) {
 
 function formatScore_(score) {
   if (score === '' || score === null || score === undefined || isNaN(score)) {
-    return 'No score';
+    return 'N/A';
   }
 
   if (typeof score === 'string' && score.indexOf('%') !== -1) {
