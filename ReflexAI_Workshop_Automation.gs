@@ -789,9 +789,9 @@ function sectionCard_(eyebrow, title, contentHtml) {
 
   return '<div style="background:#ffffff;border:1px solid #dedaf8;border-radius:20px;padding:0;margin:0 0 24px 0;overflow:hidden;box-shadow:0 14px 30px rgba(36,32,95,0.12);">' +
     '<div style="height:5px;background:' + accent + ';"></div>' +
-    '<div style="padding:17px 22px;border-bottom:1px solid #ebe8ff;background:linear-gradient(90deg,#ffffff 0%,#f5f2ff 100%);">' +
-      '<div style="font-size:11px;letter-spacing:1.1px;text-transform:uppercase;color:' + accent + ';font-weight:900;">' + escapeHtml_(eyebrow || '') + '</div>' +
-      '<div style="font-size:20px;line-height:26px;color:#24205f;font-weight:800;margin-top:4px;">' + escapeHtml_(title) + '</div>' +
+    '<div style="padding:18px 22px;border-bottom:1px solid #3e398d;background:linear-gradient(135deg,#24205f 0%,#353082 78%,#4f46b7 100%);">' +
+      '<div style="display:inline-block;background:rgba(255,255,255,0.12);border:1px solid rgba(255,255,255,0.22);border-radius:999px;padding:5px 10px;font-size:11px;letter-spacing:1.1px;text-transform:uppercase;color:#ffffff;font-weight:900;">' + escapeHtml_(eyebrow || '') + '</div>' +
+      '<div style="font-size:21px;line-height:27px;color:#ffffff;font-weight:900;margin-top:8px;">' + escapeHtml_(title) + '</div>' +
     '</div>' +
     '<div style="padding:20px 22px;background:linear-gradient(180deg,#ffffff 0%,#fbfaff 100%);">' + contentHtml + '</div>' +
     '</div>';
@@ -805,8 +805,8 @@ function metricTiles_(tiles) {
 
       return '<td style="width:33.33%;padding:6px;vertical-align:top;">' +
         '<div style="border:1px solid ' + hexToRgba_(tile.color, 0.38) + ';border-radius:18px;padding:20px 14px;background:linear-gradient(180deg,#ffffff 0%,' + wash + ' 100%);text-align:center;box-shadow:0 14px 30px ' + glow + ';min-height:86px;">' +
-          '<div style="font-size:34px;font-weight:900;color:' + tile.color + ';line-height:38px;text-align:center;letter-spacing:-0.5px;">' + escapeHtml_(String(tile.value)) + '</div>' +
-          '<div style="font-size:13px;line-height:16px;color:#24205f;font-weight:900;margin-top:8px;letter-spacing:-0.1px;">' + escapeHtml_(shortMetricLabel_(tile.label)) + '</div>' +
+          '<div style="font-size:36px;font-weight:900;color:' + tile.color + ';line-height:40px;text-align:center;letter-spacing:-0.5px;">' + escapeHtml_(String(tile.value)) + '</div>' +
+          '<div style="font-size:15px;line-height:18px;color:#24205f;font-weight:900;margin-top:10px;letter-spacing:-0.15px;">' + escapeHtml_(shortMetricLabel_(tile.label)) + '</div>' +
         '</div>' +
       '</td>';
     }).join('') +
