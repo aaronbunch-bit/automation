@@ -15,6 +15,7 @@ var DEFAULT_JOURNEY_NAME = 'High School Year Round Workshops - Jun';
 var COMPLETE_SIMULATION_ACTION = 'Ask representative to complete this simulation and schedule time via Assembled for representative to complete the simulation adhering to capacity constraints.';
 var RETAKE_SIMULATION_ACTION = 'Ask representative to retake this simulation and coach on missed skills.';
 var REFLEXAI_PLATFORM_RESOURCE_URL = 'https://drive.google.com/file/d/18X5z6iRGRk-fKY4bAvIxswwys3ne2z3r/view';
+var REFLEXAI_LOGIN_URL = 'https://varsitytutors.reflexai.com/home';
 var COMPLETED_CLEARED_LABEL = 'Completed & Cleared 80% Threshold';
 var COMPLETED_NOT_CLEARED_LABEL = 'Completed & Not Cleared 80% Threshold';
 var NOT_STARTED_LABEL = 'Not Started';
@@ -730,12 +731,12 @@ function appendDirectorTextSection_(lines, title, rows) {
 }
 
 function emailShell_(title, subtitle, bodyHtml) {
-  return '<div style="margin:0;padding:0;background:#f1efff;font-family:Arial,Helvetica,sans-serif;color:#24205f;">' +
+  return '<div style="margin:0;padding:0;background:linear-gradient(135deg,#fbf2ff 0%,#edf4ff 52%,#f7f5ff 100%);font-family:Arial,Helvetica,sans-serif;color:#24205f;">' +
     '<div style="max-width:960px;margin:0 auto;padding:24px;">' +
-      '<div style="background:#ffffff;border-radius:18px;overflow:hidden;border:1px solid #dedaf8;box-shadow:0 6px 18px rgba(36,32,95,0.10);">' +
-        '<div style="height:10px;background:linear-gradient(90deg,#ffcc33 0%,#ff3ec8 45%,#20d5d2 100%);"></div>' +
-        '<div style="background:#24205f;color:#ffffff;padding:28px 32px;">' +
-          '<div style="font-size:12px;letter-spacing:1.2px;text-transform:uppercase;color:#c8c5ff;font-weight:700;">Varsity Tutors</div>' +
+      '<div style="background:#ffffff;border-radius:22px;overflow:hidden;border:1px solid #dedaf8;box-shadow:0 14px 34px rgba(36,32,95,0.16);">' +
+        '<div style="height:12px;background:linear-gradient(90deg,#ffcc33 0%,#ff6b9c 25%,#ff3ec8 48%,#7957ff 72%,#20d5d2 100%);"></div>' +
+        '<div style="background:linear-gradient(135deg,#24205f 0%,#353082 68%,#5c4be8 100%);color:#ffffff;padding:30px 34px;">' +
+          '<div style="display:inline-block;background:rgba(255,255,255,0.12);border:1px solid rgba(255,255,255,0.28);border-radius:999px;padding:6px 12px;font-size:12px;letter-spacing:1.2px;text-transform:uppercase;color:#ffffff;font-weight:800;">Varsity Tutors</div>' +
           '<div style="font-size:28px;line-height:34px;font-weight:800;margin-top:8px;">' + escapeHtml_(title) + '</div>' +
           '<div style="font-size:14px;line-height:20px;color:#e8e6ff;margin-top:8px;">' + escapeHtml_(subtitle || '') + '</div>' +
         '</div>' +
@@ -754,15 +755,15 @@ function testBanner_(testMode, message) {
 }
 
 function introCard_(title, message) {
-  return '<div style="background:#ffffff;border:1px solid #dedaf8;border-radius:16px;padding:18px 20px;margin:0 0 18px 0;">' +
+  return '<div style="background:#ffffff;border:1px solid #dedaf8;border-radius:18px;padding:18px 20px;margin:0 0 18px 0;box-shadow:0 6px 18px rgba(36,32,95,0.07);">' +
     '<div style="font-size:17px;font-weight:800;color:#24205f;margin-bottom:8px;">' + escapeHtml_(title) + '</div>' +
     '<div style="font-size:14px;line-height:21px;color:#4d49a3;">' + escapeHtml_(message) + '</div>' +
     '</div>';
 }
 
 function sectionCard_(eyebrow, title, contentHtml) {
-  return '<div style="background:#ffffff;border:1px solid #dedaf8;border-radius:16px;padding:0;margin:0 0 22px 0;overflow:hidden;">' +
-    '<div style="padding:16px 20px;border-bottom:1px solid #ebe8ff;">' +
+  return '<div style="background:#ffffff;border:1px solid #dedaf8;border-radius:18px;padding:0;margin:0 0 22px 0;overflow:hidden;box-shadow:0 8px 22px rgba(36,32,95,0.08);">' +
+    '<div style="padding:16px 20px;border-bottom:1px solid #ebe8ff;background:linear-gradient(90deg,#ffffff 0%,#faf8ff 100%);">' +
       '<div style="font-size:11px;letter-spacing:1.1px;text-transform:uppercase;color:#6a62d2;font-weight:800;">' + escapeHtml_(eyebrow || '') + '</div>' +
       '<div style="font-size:20px;line-height:26px;color:#24205f;font-weight:800;margin-top:4px;">' + escapeHtml_(title) + '</div>' +
     '</div>' +
@@ -774,8 +775,8 @@ function metricTiles_(tiles) {
   return '<table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;"><tr>' +
     tiles.map(function(tile) {
       return '<td style="width:33.33%;padding:6px;vertical-align:top;">' +
-        '<div style="border:1px solid #ebe8ff;border-radius:14px;padding:16px;background:#fbfaff;">' +
-          '<div style="font-size:26px;font-weight:900;color:' + tile.color + ';line-height:30px;">' + escapeHtml_(String(tile.value)) + '</div>' +
+        '<div style="border:1px solid #ebe8ff;border-radius:16px;padding:18px 12px;background:linear-gradient(180deg,#ffffff 0%,#fbfaff 100%);text-align:center;box-shadow:0 5px 14px rgba(36,32,95,0.06);">' +
+          '<div style="font-size:28px;font-weight:900;color:' + tile.color + ';line-height:32px;text-align:center;">' + escapeHtml_(String(tile.value)) + '</div>' +
           '<div style="font-size:12px;line-height:17px;color:#4d49a3;font-weight:700;margin-top:6px;">' + escapeHtml_(tile.label) + '</div>' +
         '</div>' +
       '</td>';
@@ -801,6 +802,15 @@ function buildDirectorEmailHtml_(recap, testMode) {
     introCard_(
       'Hi Directors,',
       'Below is the ' + getCurrentMonthName_() + ' ReflexAI director recap thus far for ' + recap.supergroupName + '.'
+    ) +
+    sectionCard_(
+      'CONSUMER SALES SNAPSHOT',
+      'Overall Simulation Counts',
+      metricTiles_([
+        { label: COMPLETED_CLEARED_LABEL, value: formatCountPercent_(recap.company.completedAbove, recap.company.completedAbovePercent), color: '#1f9d55' },
+        { label: COMPLETED_NOT_CLEARED_LABEL, value: formatCountPercent_(recap.company.completedBelow, recap.company.completedBelowPercent), color: '#f59e0b' },
+        { label: NOT_STARTED_LABEL, value: formatCountPercent_(recap.company.notStarted, recap.company.notStartedPercent), color: '#ef4444' }
+      ])
     ) +
     buildDirectorTable_('Supergroup Breakdown', recap.supergroupRows.concat([companySummaryRow_(recap.company)]), 'Supergroup') +
     buildDirectorTable_('Manager Breakdown', recap.managerRows, 'Manager');
@@ -845,7 +855,7 @@ function companySummaryRow_(company) {
   Object.keys(company).forEach(function(key) {
     row[key] = company[key];
   });
-  row.name = 'Company';
+  row.name = 'Consumer Sales';
   row.isCompanySummary = true;
   return row;
 }
@@ -1668,6 +1678,8 @@ function buildManagerEmailBody_(managerName, rows, testMode, intendedManagerEmai
 
 function buildManagerEmailHtml_(managerName, rows, testMode, intendedManagerEmail) {
   var sections = buildEmailSections_(rows);
+  var lowScoreCount = countGroupedSimulations_(sections.lowScoreGroups);
+  var incompleteCount = countGroupedSimulations_(sections.incompleteGroups);
 
   var bodyHtml = (testMode
       ? testBanner_(true, 'This batch would have gone to: ' + intendedManagerEmail)
@@ -1676,8 +1688,19 @@ function buildManagerEmailHtml_(managerName, rows, testMode, intendedManagerEmai
       'Hi' + (managerName ? ' ' + managerName : '') + ',',
       'Below are ReflexAI simulation follow-up items for your team. Only ' + NOT_STARTED_LABEL + ' or ' + COMPLETED_NOT_CLEARED_LABEL + ' simulations are included.'
     ) +
+    sectionCard_(
+      'TEAM SNAPSHOT',
+      'Follow-Up Items Included',
+      metricTiles_([
+        { label: COMPLETED_NOT_CLEARED_LABEL, value: lowScoreCount, color: '#f59e0b' },
+        { label: NOT_STARTED_LABEL, value: incompleteCount, color: '#ef4444' },
+        { label: 'Total Follow-Up Items', value: lowScoreCount + incompleteCount, color: '#6a62d2' }
+      ])
+    ) +
     '<div style="text-align:center;margin:18px 0 22px 0;">' +
       '<a href="' + REFLEXAI_PLATFORM_RESOURCE_URL + '" style="display:inline-block;background:#24205f;color:#ffffff;text-decoration:none;padding:12px 20px;border-radius:999px;font-weight:700;font-size:14px;">Watch ReflexAI Navigation Video</a>' +
+      '<span style="display:inline-block;width:10px;"></span>' +
+      '<a href="' + REFLEXAI_LOGIN_URL + '" style="display:inline-block;background:#ff3ec8;color:#ffffff;text-decoration:none;padding:12px 20px;border-radius:999px;font-weight:700;font-size:14px;">Open ReflexAI Login</a>' +
     '</div>' +
     buildHtmlSection_(COMPLETED_NOT_CLEARED_LABEL + ' - Priority', sections.lowScoreGroups, true) +
     buildHtmlSection_(NOT_STARTED_LABEL, sections.incompleteGroups, false) +
@@ -1688,6 +1711,12 @@ function buildManagerEmailHtml_(managerName, rows, testMode, intendedManagerEmai
     'Varsity Tutors Coaching Enablement',
     bodyHtml
   );
+}
+
+function countGroupedSimulations_(groups) {
+  return groups.reduce(function(total, group) {
+    return total + group.simulations.length;
+  }, 0);
 }
 
 function buildEmailSections_(rows) {
@@ -1780,9 +1809,7 @@ function buildHtmlSection_(title, groups, useScoreGradient) {
   }
 
   var tableRows = groups.map(function(group) {
-    var rowStyle = useScoreGradient
-      ? ' style="background-color:' + scoreGradientColor_(group.minScorePercent) + ';"'
-      : '';
+    var rowStyle = '';
 
     var rowspan = group.simulations.length;
     var action = summarizeActions_(group.simulations);
