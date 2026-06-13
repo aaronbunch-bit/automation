@@ -20,7 +20,7 @@ var EMAIL_SUBTITLE = 'Varsity Tutors Quality Assurance Pillar';
 var COMPLETED_CLEARED_LABEL = 'Completed & Cleared 80% Threshold';
 var COMPLETED_NOT_CLEARED_LABEL = 'Completed & Not Cleared 80% Threshold';
 var NOT_STARTED_LABEL = 'Not Started';
-var COMPLETED_CLEARED_COLOR = '#20d5d2';
+var COMPLETED_CLEARED_COLOR = '#4f8cff';
 var COMPLETED_NOT_CLEARED_COLOR = '#ffcc33';
 var NOT_STARTED_COLOR = '#ff3ec8';
 
@@ -787,13 +787,13 @@ function introCard_(title, message) {
 function sectionCard_(eyebrow, title, contentHtml) {
   var accent = accentColorForSection_(eyebrow, title);
 
-  return '<div style="background:#ffffff;border:1px solid #dedaf8;border-radius:18px;padding:0;margin:0 0 22px 0;overflow:hidden;box-shadow:0 10px 26px rgba(36,32,95,0.10);">' +
+  return '<div style="background:#ffffff;border:1px solid #dedaf8;border-radius:20px;padding:0;margin:0 0 24px 0;overflow:hidden;box-shadow:0 14px 30px rgba(36,32,95,0.12);">' +
     '<div style="height:5px;background:' + accent + ';"></div>' +
-    '<div style="padding:16px 20px;border-bottom:1px solid #ebe8ff;background:linear-gradient(90deg,#ffffff 0%,#faf8ff 100%);">' +
+    '<div style="padding:17px 22px;border-bottom:1px solid #ebe8ff;background:linear-gradient(90deg,#ffffff 0%,#f5f2ff 100%);">' +
       '<div style="font-size:11px;letter-spacing:1.1px;text-transform:uppercase;color:' + accent + ';font-weight:900;">' + escapeHtml_(eyebrow || '') + '</div>' +
       '<div style="font-size:20px;line-height:26px;color:#24205f;font-weight:800;margin-top:4px;">' + escapeHtml_(title) + '</div>' +
     '</div>' +
-    '<div style="padding:18px 20px;">' + contentHtml + '</div>' +
+    '<div style="padding:20px 22px;background:linear-gradient(180deg,#ffffff 0%,#fbfaff 100%);">' + contentHtml + '</div>' +
     '</div>';
 }
 
@@ -884,14 +884,16 @@ function styledTable_(headers, bodyRowsHtml) {
     .replace(/<tr>/g, '<tr style="background:#ffffff;">')
     .replace(/<td([^>]*)>/g, '<td$1 style="padding:11px 10px;border-bottom:1px solid #ebe8ff;vertical-align:middle;">');
 
-  return '<table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;font-size:13px;color:#24205f;">' +
+  return '<div style="border:1px solid #ebe8ff;border-radius:14px;overflow:hidden;box-shadow:inset 0 1px 0 rgba(255,255,255,0.8);">' +
+    '<table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;font-size:13px;color:#24205f;background:#ffffff;">' +
     '<thead><tr>' +
       headers.map(function(header) {
         return '<th style="text-align:left;background:linear-gradient(180deg,#f3f0ff 0%,#ebe8ff 100%);color:#24205f;padding:12px 10px;border-bottom:1px solid #dedaf8;font-weight:900;">' + escapeHtml_(header) + '</th>';
       }).join('') +
     '</tr></thead>' +
     '<tbody>' + styledBody + '</tbody>' +
-    '</table>';
+    '</table>' +
+    '</div>';
 }
 
 function accentColorForSection_(eyebrow, title) {
@@ -1821,7 +1823,7 @@ function buildManagerEmailHtml_(managerName, rows, testMode, intendedManagerEmai
     '<div style="text-align:center;margin:18px 0 22px 0;">' +
       '<a href="' + REFLEXAI_PLATFORM_RESOURCE_URL + '" style="display:inline-block;background:#24205f;color:#ffffff;text-decoration:none;padding:12px 20px;border-radius:999px;font-weight:700;font-size:14px;">Watch ReflexAI Navigation Video</a>' +
       '<span style="display:inline-block;width:10px;"></span>' +
-      '<a href="' + REFLEXAI_LOGIN_URL + '" style="display:inline-block;background:#ff3ec8;color:#ffffff;text-decoration:none;padding:12px 20px;border-radius:999px;font-weight:700;font-size:14px;">Open ReflexAI Login</a>' +
+      '<a href="' + REFLEXAI_LOGIN_URL + '" style="display:inline-block;background:#ffffff;color:#24205f;text-decoration:none;padding:11px 20px;border-radius:999px;border:2px solid #24205f;font-weight:800;font-size:14px;">Open ReflexAI Login</a>' +
     '</div>' +
     buildHtmlSection_(COMPLETED_NOT_CLEARED_LABEL + ' - Priority', sections.lowScoreGroups, true) +
     buildHtmlSection_(NOT_STARTED_LABEL, sections.incompleteGroups, false) +
@@ -1969,8 +1971,8 @@ function statusBadge_(status) {
   var background = '#f1efff';
 
   if (normalized.indexOf('completed') !== -1) {
-    color = '#138c8a';
-    background = '#e6fbfb';
+    color = '#245bc5';
+    background = '#eef5ff';
   } else if (normalized.indexOf('not') !== -1 || normalized.indexOf('progress') !== -1 || normalized.indexOf('started') !== -1) {
     color = '#b91c85';
     background = '#fff0fb';
@@ -1987,8 +1989,8 @@ function scoreBadge_(score) {
 
   if (isFinite(scorePercent)) {
     if (scorePercent >= PASSING_SCORE_PERCENT) {
-      color = '#138c8a';
-      background = '#e6fbfb';
+      color = '#245bc5';
+      background = '#eef5ff';
     } else {
       color = '#9a6a00';
       background = '#fff8df';
