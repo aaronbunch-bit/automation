@@ -801,7 +801,7 @@ function metricTiles_(tiles) {
   return '<table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;"><tr>' +
     tiles.map(function(tile) {
       return '<td style="width:33.33%;padding:6px;vertical-align:top;">' +
-        '<div style="border:1px solid #ebe8ff;border-radius:16px;padding:18px 12px;background:linear-gradient(180deg,#ffffff 0%,#fbfaff 100%);text-align:center;box-shadow:0 5px 14px rgba(36,32,95,0.06);">' +
+        '<div style="border:1px solid #ebe8ff;border-radius:16px;padding:18px 12px;background:linear-gradient(180deg,#ffffff 0%,#fbfaff 100%);text-align:center;box-shadow:0 5px 14px rgba(36,32,95,0.06);min-height:112px;">' +
           '<div style="font-size:28px;font-weight:900;color:' + tile.color + ';line-height:32px;text-align:center;">' + escapeHtml_(String(tile.value)) + '</div>' +
           '<div style="font-size:12px;line-height:17px;color:#4d49a3;font-weight:700;margin-top:6px;">' + escapeHtml_(tile.label) + '</div>' +
         '</div>' +
@@ -1809,6 +1809,11 @@ function buildManagerEmailHtml_(managerName, rows, testMode, intendedManagerEmai
       'Hi' + (managerName ? ' ' + managerName : '') + ',',
       'Below are ReflexAI simulation follow-up items for your team. Only ' + NOT_STARTED_LABEL + ' or ' + COMPLETED_NOT_CLEARED_LABEL + ' simulations are included.'
     ) +
+    '<div style="text-align:center;margin:18px 0 22px 0;">' +
+      '<a href="' + REFLEXAI_PLATFORM_RESOURCE_URL + '" style="display:inline-block;background:#24205f;color:#ffffff;text-decoration:none;padding:12px 20px;border-radius:999px;font-weight:700;font-size:14px;">Watch ReflexAI Navigation Video</a>' +
+      '<span style="display:inline-block;width:10px;"></span>' +
+      '<a href="' + REFLEXAI_LOGIN_URL + '" style="display:inline-block;background:#ffffff;color:#24205f;text-decoration:none;padding:11px 20px;border-radius:999px;border:2px solid #24205f;font-weight:800;font-size:14px;">Open ReflexAI Login</a>' +
+    '</div>' +
     sectionCard_(
       'TEAM SNAPSHOT',
       'Follow-Up Items Included',
@@ -1820,11 +1825,6 @@ function buildManagerEmailHtml_(managerName, rows, testMode, intendedManagerEmai
       progressBar_(0, lowScoreCount, incompleteCount) +
       managerSimulationAveragesHtml_(rows)
     ) +
-    '<div style="text-align:center;margin:18px 0 22px 0;">' +
-      '<a href="' + REFLEXAI_PLATFORM_RESOURCE_URL + '" style="display:inline-block;background:#24205f;color:#ffffff;text-decoration:none;padding:12px 20px;border-radius:999px;font-weight:700;font-size:14px;">Watch ReflexAI Navigation Video</a>' +
-      '<span style="display:inline-block;width:10px;"></span>' +
-      '<a href="' + REFLEXAI_LOGIN_URL + '" style="display:inline-block;background:#ffffff;color:#24205f;text-decoration:none;padding:11px 20px;border-radius:999px;border:2px solid #24205f;font-weight:800;font-size:14px;">Open ReflexAI Login</a>' +
-    '</div>' +
     buildHtmlSection_(COMPLETED_NOT_CLEARED_LABEL + ' - Priority', sections.lowScoreGroups, true) +
     buildHtmlSection_(NOT_STARTED_LABEL, sections.incompleteGroups, false) +
     introCard_('Thank you.', 'Please use this report to prioritize coaching and completion follow-up.');
