@@ -729,17 +729,92 @@ function appendDirectorTextSection_(lines, title, rows) {
   lines.push('');
 }
 
-function buildDirectorEmailHtml_(recap, testMode) {
-  return (testMode ? '<p><strong>TEST MODE</strong> - Director recap preview.</p>' : '') +
-    '<p>Hi Directors,</p>' +
-    '<p>Below is the ' + escapeHtml_(getCurrentMonthName_()) + ' ReflexAI director recap thus far for ' + escapeHtml_(recap.supergroupName) + '.</p>' +
-    buildDirectorTable_('Supergroup Breakdown', recap.supergroupRows.concat([companySummaryRow_(recap.company)])) +
-    buildDirectorTable_('Manager Breakdown', recap.managerRows);
+function emailShell_(title, subtitle, bodyHtml) {
+  return '<div style="margin:0;padding:0;background:#f1efff;font-family:Arial,Helvetica,sans-serif;color:#24205f;">' +
+    '<div style="max-width:960px;margin:0 auto;padding:24px;">' +
+      '<div style="background:#ffffff;border-radius:18px;overflow:hidden;border:1px solid #dedaf8;box-shadow:0 6px 18px rgba(36,32,95,0.10);">' +
+        '<div style="height:10px;background:linear-gradient(90deg,#ffcc33 0%,#ff3ec8 45%,#20d5d2 100%);"></div>' +
+        '<div style="background:#24205f;color:#ffffff;padding:28px 32px;">' +
+          '<div style="font-size:12px;letter-spacing:1.2px;text-transform:uppercase;color:#c8c5ff;font-weight:700;">Varsity Tutors</div>' +
+          '<div style="font-size:28px;line-height:34px;font-weight:800;margin-top:8px;">' + escapeHtml_(title) + '</div>' +
+          '<div style="font-size:14px;line-height:20px;color:#e8e6ff;margin-top:8px;">' + escapeHtml_(subtitle || '') + '</div>' +
+        '</div>' +
+        '<div style="padding:28px 32px;background:#f7f5ff;">' + bodyHtml + '</div>' +
+      '</div>' +
+    '</div>' +
+  '</div>';
 }
 
-function buildDirectorTable_(title, rows) {
+function testBanner_(testMode, message) {
+  if (!testMode) return '';
+
+  return '<div style="background:#fff3cd;border:1px solid #ffd966;color:#5f4500;border-radius:14px;padding:12px 16px;margin:0 0 18px 0;font-size:14px;line-height:20px;">' +
+    '<strong>TEST MODE</strong> - ' + escapeHtml_(message || 'Preview email.') +
+    '</div>';
+}
+
+function introCard_(title, message) {
+  return '<div style="background:#ffffff;border:1px solid #dedaf8;border-radius:16px;padding:18px 20px;margin:0 0 18px 0;">' +
+    '<div style="font-size:17px;font-weight:800;color:#24205f;margin-bottom:8px;">' + escapeHtml_(title) + '</div>' +
+    '<div style="font-size:14px;line-height:21px;color:#4d49a3;">' + escapeHtml_(message) + '</div>' +
+    '</div>';
+}
+
+function sectionCard_(eyebrow, title, contentHtml) {
+  return '<div style="background:#ffffff;border:1px solid #dedaf8;border-radius:16px;padding:0;margin:0 0 22px 0;overflow:hidden;">' +
+    '<div style="padding:16px 20px;border-bottom:1px solid #ebe8ff;">' +
+      '<div style="font-size:11px;letter-spacing:1.1px;text-transform:uppercase;color:#6a62d2;font-weight:800;">' + escapeHtml_(eyebrow || '') + '</div>' +
+      '<div style="font-size:20px;line-height:26px;color:#24205f;font-weight:800;margin-top:4px;">' + escapeHtml_(title) + '</div>' +
+    '</div>' +
+    '<div style="padding:18px 20px;">' + contentHtml + '</div>' +
+    '</div>';
+}
+
+function metricTiles_(tiles) {
+  return '<table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;"><tr>' +
+    tiles.map(function(tile) {
+      return '<td style="width:33.33%;padding:6px;vertical-align:top;">' +
+        '<div style="border:1px solid #ebe8ff;border-radius:14px;padding:16px;background:#fbfaff;">' +
+          '<div style="font-size:26px;font-weight:900;color:' + tile.color + ';line-height:30px;">' + escapeHtml_(String(tile.value)) + '</div>' +
+          '<div style="font-size:12px;line-height:17px;color:#4d49a3;font-weight:700;margin-top:6px;">' + escapeHtml_(tile.label) + '</div>' +
+        '</div>' +
+      '</td>';
+    }).join('') +
+    '</tr></table>';
+}
+
+function styledTable_(headers, bodyRowsHtml) {
+  var styledBody = bodyRowsHtml.replace(/<td([^>]*)>/g, '<td$1 style="padding:10px;border-bottom:1px solid #ebe8ff;vertical-align:middle;">');
+
+  return '<table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;font-size:13px;color:#24205f;">' +
+    '<thead><tr>' +
+      headers.map(function(header) {
+        return '<th style="text-align:left;background:#f1efff;color:#24205f;padding:11px 10px;border-bottom:1px solid #dedaf8;font-weight:800;">' + escapeHtml_(header) + '</th>';
+      }).join('') +
+    '</tr></thead>' +
+    '<tbody>' + styledBody + '</tbody>' +
+    '</table>';
+}
+
+function buildDirectorEmailHtml_(recap, testMode) {
+  var bodyHtml = testBanner_(testMode, 'Director recap preview.') +
+    introCard_(
+      'Hi Directors,',
+      'Below is the ' + getCurrentMonthName_() + ' ReflexAI director recap thus far for ' + recap.supergroupName + '.'
+    ) +
+    buildDirectorTable_('Supergroup Breakdown', recap.supergroupRows.concat([companySummaryRow_(recap.company)]), 'Supergroup') +
+    buildDirectorTable_('Manager Breakdown', recap.managerRows, 'Manager');
+
+  return emailShell_(
+    getCurrentMonthName_() + ' ' + recap.supergroupName + ' ReflexAI Director Recap',
+    'Varsity Tutors Coaching Enablement',
+    bodyHtml
+  );
+}
+
+function buildDirectorTable_(title, rows, firstColumnLabel) {
   var tableRows = rows.map(function(row) {
-    var rowStyle = row.isCompanySummary ? ' style="background-color:#d9ead3;font-weight:bold;"' : '';
+    var rowStyle = row.isCompanySummary ? ' style="background-color:#e7f7ec;font-weight:bold;"' : '';
 
     return '<tr' + rowStyle + '>' +
       '<td>' + escapeHtml_(row.name || 'Company') + '</td>' +
@@ -751,15 +826,18 @@ function buildDirectorTable_(title, rows) {
       '</tr>';
   }).join('');
 
-  return '<h3>' + escapeHtml_(title) + '</h3>' +
-    '<table border="1" cellpadding="6" cellspacing="0" style="border-collapse:collapse;">' +
-    '<thead><tr><th>' + escapeHtml_(title === 'Manager Breakdown' ? 'Manager' : 'Segment') + '</th>' +
-    '<th>' + COMPLETED_CLEARED_LABEL + '</th>' +
-    '<th>' + COMPLETED_NOT_CLEARED_LABEL + '</th>' +
-    '<th>' + NOT_STARTED_LABEL + '</th>' +
-    '<th>Average Completed Score</th>' +
-    '<th>Total</th></tr></thead>' +
-    '<tbody>' + tableRows + '</tbody></table>';
+  return sectionCard_(
+    title === 'Manager Breakdown' ? 'STACK-RANKED BY CLEARED THRESHOLD' : 'DASHBOARD VIEW',
+    title,
+    styledTable_([
+      firstColumnLabel || 'Segment',
+      COMPLETED_CLEARED_LABEL,
+      COMPLETED_NOT_CLEARED_LABEL,
+      NOT_STARTED_LABEL,
+      'Average Completed Score',
+      'Total'
+    ], tableRows)
+  );
 }
 
 function companySummaryRow_(company) {
@@ -1120,25 +1198,33 @@ function buildSeniorLeadershipRecapText_(recap, testMode, recipientConfig) {
 }
 
 function buildSeniorLeadershipRecapHtml_(recap, testMode, recipientConfig) {
-  return (testMode ? '<p><strong>TEST MODE</strong> - Senior leadership recap preview.' +
-      (recipientConfig && recipientConfig.email ? ' This email would have gone to: ' + escapeHtml_(recipientConfig.email) + '.' : '') +
-      '</p>' : '') +
-    '<p>Hi ' + escapeHtml_((recipientConfig && recipientConfig.leaderName) || 'Senior Leaders') + ',</p>' +
-    '<p>Below is the ' + escapeHtml_(getCurrentMonthName_()) + ' ReflexAI recap thus far for ' + escapeHtml_(recap.supergroupName) + '.</p>' +
+  var intended = recipientConfig && recipientConfig.email ? 'This email would have gone to: ' + recipientConfig.email + '.' : '';
+  var bodyHtml = testBanner_(testMode, 'Senior leadership recap preview. ' + intended) +
+    introCard_(
+      'Hi ' + ((recipientConfig && recipientConfig.leaderName) || 'Senior Leaders') + ',',
+      'Below is the ' + getCurrentMonthName_() + ' ReflexAI recap thus far for ' + recap.supergroupName + '.'
+    ) +
     buildLeadershipCountsTable_(recap) +
     buildSimulationAverageTable_(recap.simulationAverages) +
     buildManagerRecapTable_(recap.managerRows);
+
+  return emailShell_(
+    getCurrentMonthName_() + ' ' + recap.supergroupName + ' ReflexAI Supergroup Recap',
+    'Varsity Tutors Coaching Enablement',
+    bodyHtml
+  );
 }
 
 function buildLeadershipCountsTable_(recap) {
-  return '<h3>Overall Simulation Counts</h3>' +
-    '<table border="1" cellpadding="6" cellspacing="0" style="border-collapse:collapse;">' +
-    '<thead><tr><th>Metric</th><th>Count</th></tr></thead>' +
-    '<tbody>' +
-    '<tr><td>' + NOT_STARTED_LABEL + '</td><td>' + recap.counts.notStarted + '</td></tr>' +
-    '<tr><td>' + COMPLETED_NOT_CLEARED_LABEL + '</td><td>' + recap.counts.completedBelow + '</td></tr>' +
-    '<tr><td>' + COMPLETED_CLEARED_LABEL + '</td><td>' + recap.counts.completedAbove + '</td></tr>' +
-    '</tbody></table>';
+  return sectionCard_(
+    'SUPERGROUP SNAPSHOT',
+    'Overall Simulation Counts',
+    metricTiles_([
+      { label: COMPLETED_CLEARED_LABEL, value: recap.counts.completedAbove, color: '#1f9d55' },
+      { label: COMPLETED_NOT_CLEARED_LABEL, value: recap.counts.completedBelow, color: '#f59e0b' },
+      { label: NOT_STARTED_LABEL, value: recap.counts.notStarted, color: '#ef4444' }
+    ])
+  );
 }
 
 function buildSimulationAverageTable_(simulationAverages) {
@@ -1150,10 +1236,11 @@ function buildSimulationAverageTable_(simulationAverages) {
       '</tr>';
   }).join('');
 
-  return '<h3>Average Score on Completed Simulations by Simulation</h3>' +
-    '<table border="1" cellpadding="6" cellspacing="0" style="border-collapse:collapse;">' +
-    '<thead><tr><th>Simulation</th><th>Completed Count</th><th>Average Score</th></tr></thead>' +
-    '<tbody>' + rows + '</tbody></table>';
+  return sectionCard_(
+    'PERFORMANCE DETAIL',
+    'Average Score on Completed Simulations by Simulation',
+    styledTable_(['Simulation', 'Completed Count', 'Average Score'], rows)
+  );
 }
 
 function buildManagerRecapTable_(managerRows) {
@@ -1167,10 +1254,17 @@ function buildManagerRecapTable_(managerRows) {
       '</tr>';
   }).join('');
 
-  return '<h3>Manager Breakdown</h3>' +
-    '<table border="1" cellpadding="6" cellspacing="0" style="border-collapse:collapse;">' +
-    '<thead><tr><th>Manager</th><th>% ' + COMPLETED_CLEARED_LABEL + '</th><th>% ' + COMPLETED_NOT_CLEARED_LABEL + '</th><th>% ' + NOT_STARTED_LABEL + '</th><th>Total Simulations</th></tr></thead>' +
-    '<tbody>' + rows + '</tbody></table>';
+  return sectionCard_(
+    'MANAGER VIEW',
+    'Manager Breakdown',
+    styledTable_([
+      'Manager',
+      '% ' + COMPLETED_CLEARED_LABEL,
+      '% ' + COMPLETED_NOT_CLEARED_LABEL,
+      '% ' + NOT_STARTED_LABEL,
+      'Total Simulations'
+    ], rows)
+  );
 }
 
 function buildLookerManagerRoster_(spreadsheet) {
@@ -1575,17 +1669,25 @@ function buildManagerEmailBody_(managerName, rows, testMode, intendedManagerEmai
 function buildManagerEmailHtml_(managerName, rows, testMode, intendedManagerEmail) {
   var sections = buildEmailSections_(rows);
 
-  return (testMode
-      ? '<p><strong>TEST MODE</strong> - This batch would have gone to: ' +
-        escapeHtml_(intendedManagerEmail) +
-        '</p>'
+  var bodyHtml = (testMode
+      ? testBanner_(true, 'This batch would have gone to: ' + intendedManagerEmail)
       : '') +
-    '<p>Hi' + (managerName ? ' ' + escapeHtml_(managerName) : '') + ',</p>' +
-    '<p>Below are ReflexAI simulation follow-up items for your team. Only ' + escapeHtml_(NOT_STARTED_LABEL) + ' or ' + escapeHtml_(COMPLETED_NOT_CLEARED_LABEL) + ' simulations are included.</p>' +
-    '<p>Please use <a href="' + REFLEXAI_PLATFORM_RESOURCE_URL + '">this video</a> as a resource for navigating the ReflexAI Platform for further insights.</p>' +
+    introCard_(
+      'Hi' + (managerName ? ' ' + managerName : '') + ',',
+      'Below are ReflexAI simulation follow-up items for your team. Only ' + NOT_STARTED_LABEL + ' or ' + COMPLETED_NOT_CLEARED_LABEL + ' simulations are included.'
+    ) +
+    '<div style="text-align:center;margin:18px 0 22px 0;">' +
+      '<a href="' + REFLEXAI_PLATFORM_RESOURCE_URL + '" style="display:inline-block;background:#24205f;color:#ffffff;text-decoration:none;padding:12px 20px;border-radius:999px;font-weight:700;font-size:14px;">Watch ReflexAI Navigation Video</a>' +
+    '</div>' +
     buildHtmlSection_(COMPLETED_NOT_CLEARED_LABEL + ' - Priority', sections.lowScoreGroups, true) +
     buildHtmlSection_(NOT_STARTED_LABEL, sections.incompleteGroups, false) +
-    '<p>Thank you.</p>';
+    introCard_('Thank you.', 'Please use this report to prioritize coaching and completion follow-up.');
+
+  return emailShell_(
+    'ReflexAI Weekly Simulation Follow-Up',
+    'Varsity Tutors Coaching Enablement',
+    bodyHtml
+  );
 }
 
 function buildEmailSections_(rows) {
@@ -1705,11 +1807,11 @@ function buildHtmlSection_(title, groups, useScoreGradient) {
     }).join('');
   }).join('');
 
-  return '<h3>' + escapeHtml_(title) + '</h3>' +
-    '<table border="1" cellpadding="6" cellspacing="0" style="border-collapse:collapse;">' +
-    '<thead><tr><th>Representative</th><th>Journey</th><th>Simulation</th><th>Status</th><th>Score</th><th>Follow-up Action</th></tr></thead>' +
-    '<tbody>' + tableRows + '</tbody>' +
-    '</table>';
+  return sectionCard_(
+    useScoreGradient ? 'PRIORITY FOLLOW-UP' : 'ACTION NEEDED',
+    title,
+    styledTable_(['Representative', 'Journey', 'Simulation', 'Status', 'Score', 'Follow-up Action'], tableRows)
+  );
 }
 
 function summarizeActions_(simulations) {
