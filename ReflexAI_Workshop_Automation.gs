@@ -16,6 +16,7 @@ var COMPLETE_SIMULATION_ACTION = 'Ask representative to complete this simulation
 var RETAKE_SIMULATION_ACTION = 'Ask representative to retake this simulation and coach on missed skills.';
 var REFLEXAI_PLATFORM_RESOURCE_URL = 'https://drive.google.com/file/d/18X5z6iRGRk-fKY4bAvIxswwys3ne2z3r/view';
 var REFLEXAI_LOGIN_URL = 'https://varsitytutors.reflexai.com/home';
+var EMAIL_SUBTITLE = 'Varsity Tutors Quality Assurance Pillar';
 var COMPLETED_CLEARED_LABEL = 'Completed & Cleared 80% Threshold';
 var COMPLETED_NOT_CLEARED_LABEL = 'Completed & Not Cleared 80% Threshold';
 var NOT_STARTED_LABEL = 'Not Started';
@@ -318,6 +319,7 @@ function sendManagerEmailBatches_(testMode) {
   var skippedAlreadyManagerSent = 0;
   var previouslyTestSent = 0;
   var skippedNoManagerEmail = 0;
+  var skippedBlockedRecipients = 0;
 
   values.slice(1).forEach(function(row, offset) {
     var sheetRowNumber = offset + 2;
@@ -395,7 +397,12 @@ function sendManagerEmailBatches_(testMode) {
 
     var recipients = testMode
       ? TEST_EMAIL_RECIPIENTS.join(',')
-      : Object.keys(batch.recipientEmails).join(',');
+      : Object.keys(batch.recipientEmails).filter(isAllowedRecipientEmail_).join(',');
+
+    if (!recipients) {
+      skippedBlockedRecipients += batch.rows.length;
+      return;
+    }
 
     MailApp.sendEmail({
       to: recipients,
@@ -435,7 +442,9 @@ function sendManagerEmailBatches_(testMode) {
     '\nPreviously test-sent rows included for retest: ' +
     previouslyTestSent +
     '\nRows missing manager email: ' +
-    skippedNoManagerEmail
+    skippedNoManagerEmail +
+    '\nRows skipped due to blocked John Paul/Riordan recipient: ' +
+    skippedBlockedRecipients
   );
 }
 
@@ -737,7 +746,6 @@ function emailShell_(title, subtitle, bodyHtml) {
         '<div style="height:12px;background:linear-gradient(90deg,#ffcc33 0%,#ff6b9c 25%,#ff3ec8 48%,#7957ff 72%,#20d5d2 100%);"></div>' +
         '<div style="background:linear-gradient(135deg,#24205f 0%,#353082 68%,#5c4be8 100%);color:#ffffff;padding:30px 34px;">' +
           '<div style="display:inline-block;background:rgba(255,255,255,0.12);border:1px solid rgba(255,255,255,0.28);border-radius:999px;padding:6px 12px;font-size:12px;letter-spacing:1.2px;text-transform:uppercase;color:#ffffff;font-weight:800;">Varsity Tutors</div>' +
-          '<div style="display:inline-block;margin-left:8px;background:rgba(32,213,210,0.14);border:1px solid rgba(32,213,210,0.45);border-radius:999px;padding:6px 12px;font-size:12px;color:#dffefe;font-weight:800;">ReflexAI Signals</div>' +
           '<div style="font-size:28px;line-height:34px;font-weight:800;margin-top:8px;">' + escapeHtml_(title) + '</div>' +
           '<div style="font-size:14px;line-height:20px;color:#e8e6ff;margin-top:8px;">' + escapeHtml_(subtitle || '') + '</div>' +
           '<table width="100%" cellpadding="0" cellspacing="0" style="margin-top:18px;border-collapse:collapse;"><tr>' +
@@ -747,6 +755,7 @@ function emailShell_(title, subtitle, bodyHtml) {
           '</tr></table>' +
         '</div>' +
         '<div style="padding:28px 32px;background:#f7f5ff;">' + bodyHtml + '</div>' +
+        '<div style="background:linear-gradient(135deg,#24205f 0%,#353082 68%,#5c4be8 100%);color:#ffffff;padding:18px 32px;text-align:center;font-size:14px;font-weight:700;">Questions? Contact Aaron Bunch for Support.</div>' +
       '</div>' +
     '</div>' +
   '</div>';
@@ -785,13 +794,77 @@ function metricTiles_(tiles) {
     tiles.map(function(tile) {
       return '<td style="width:33.33%;padding:6px;vertical-align:top;">' +
         '<div style="border:1px solid #ebe8ff;border-radius:16px;padding:18px 12px;background:linear-gradient(180deg,#ffffff 0%,#fbfaff 100%);text-align:center;box-shadow:0 5px 14px rgba(36,32,95,0.06);">' +
-          '<div style="height:4px;border-radius:999px;background:' + tile.color + ';margin:0 auto 12px auto;width:52px;"></div>' +
           '<div style="font-size:28px;font-weight:900;color:' + tile.color + ';line-height:32px;text-align:center;">' + escapeHtml_(String(tile.value)) + '</div>' +
           '<div style="font-size:12px;line-height:17px;color:#4d49a3;font-weight:700;margin-top:6px;">' + escapeHtml_(tile.label) + '</div>' +
         '</div>' +
       '</td>';
     }).join('') +
     '</tr></table>';
+}
+
+function progressBar_(completedAbove, completedBelow, notStarted) {
+  var total = completedAbove + completedBelow + notStarted;
+  if (!total) {
+    return '';
+  }
+
+  var abovePct = Math.round((completedAbove / total) * 100);
+  var belowPct = Math.round((completedBelow / total) * 100);
+  var notStartedPct = Math.max(0, 100 - abovePct - belowPct);
+
+  return '<div style="margin:16px 6px 4px 6px;">' +
+    '<table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;"><tr>' +
+      '<td width="' + abovePct + '%" style="height:14px;background:#1f9d55;border-radius:999px 0 0 999px;font-size:1px;line-height:1px;">&nbsp;</td>' +
+      '<td width="' + belowPct + '%" style="height:14px;background:#f59e0b;font-size:1px;line-height:1px;">&nbsp;</td>' +
+      '<td width="' + notStartedPct + '%" style="height:14px;background:#ef4444;border-radius:0 999px 999px 0;font-size:1px;line-height:1px;">&nbsp;</td>' +
+    '</tr></table>' +
+    '<table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;margin-top:7px;font-size:11px;color:#4d49a3;"><tr>' +
+      '<td style="text-align:left;">' + COMPLETED_CLEARED_LABEL + '</td>' +
+      '<td style="text-align:center;">' + COMPLETED_NOT_CLEARED_LABEL + '</td>' +
+      '<td style="text-align:right;">' + NOT_STARTED_LABEL + '</td>' +
+    '</tr></table>' +
+  '</div>';
+}
+
+function managerSimulationAveragesHtml_(rows) {
+  var bySimulation = {};
+
+  rows.forEach(function(row) {
+    var simulationName = row.simulationName || 'Unknown Simulation';
+    if (!bySimulation[simulationName]) {
+      bySimulation[simulationName] = {
+        total: 0,
+        count: 0
+      };
+    }
+
+    var scorePercent = parseEmailScorePercent_(row.score);
+    if (isFinite(scorePercent)) {
+      bySimulation[simulationName].total += scorePercent;
+      bySimulation[simulationName].count++;
+    }
+  });
+
+  var simulationNames = Object.keys(bySimulation).sort();
+  if (!simulationNames.length) {
+    return '';
+  }
+
+  return '<div style="margin:16px 6px 2px 6px;">' +
+    '<div style="font-size:12px;letter-spacing:0.7px;text-transform:uppercase;color:#6a62d2;font-weight:900;margin-bottom:8px;">Average Score by Simulation</div>' +
+    '<table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;"><tr>' +
+      simulationNames.map(function(simulationName) {
+        var item = bySimulation[simulationName];
+        var average = item.count ? item.total / item.count : null;
+        return '<td style="padding:5px;vertical-align:top;">' +
+          '<div style="background:#fbfaff;border:1px solid #ebe8ff;border-radius:14px;padding:10px;text-align:center;">' +
+            '<div style="font-size:12px;color:#4d49a3;font-weight:800;">' + escapeHtml_(simulationName) + '</div>' +
+            '<div style="font-size:18px;color:#24205f;font-weight:900;margin-top:4px;">' + (average === null ? 'N/A' : escapeHtml_(formatScore_(average))) + '</div>' +
+          '</div>' +
+        '</td>';
+      }).join('') +
+    '</tr></table>' +
+  '</div>';
 }
 
 function styledTable_(headers, bodyRowsHtml) {
@@ -840,7 +913,7 @@ function buildDirectorEmailHtml_(recap, testMode) {
 
   return emailShell_(
     getCurrentMonthName_() + ' ' + recap.supergroupName + ' ReflexAI Director Recap',
-    'Varsity Tutors Coaching Enablement',
+    EMAIL_SUBTITLE,
     bodyHtml
   );
 }
@@ -1178,6 +1251,15 @@ function isJohnRiordanName_(value) {
   ].indexOf(normalized) !== -1;
 }
 
+function isAllowedRecipientEmail_(email) {
+  return !isBlockedJohnRiordanEmail_(email);
+}
+
+function isBlockedJohnRiordanEmail_(email) {
+  var normalized = normalizePersonKey_(String(email || '').split('@')[0]);
+  return isJohnRiordanName_(normalized);
+}
+
 function getManagerRecapKey_(managerName, managerEmail) {
   var normalizedName = normalizeManagerDisplayName_(managerName);
   if (normalizedName === 'John Riordan') {
@@ -1243,7 +1325,7 @@ function buildSeniorLeadershipRecapHtml_(recap, testMode, recipientConfig) {
 
   return emailShell_(
     getCurrentMonthName_() + ' ' + recap.supergroupName + ' ReflexAI Supergroup Recap',
-    'Varsity Tutors Coaching Enablement',
+    EMAIL_SUBTITLE,
     bodyHtml
   );
 }
@@ -1256,7 +1338,8 @@ function buildLeadershipCountsTable_(recap) {
       { label: COMPLETED_CLEARED_LABEL, value: recap.counts.completedAbove, color: '#1f9d55' },
       { label: COMPLETED_NOT_CLEARED_LABEL, value: recap.counts.completedBelow, color: '#f59e0b' },
       { label: NOT_STARTED_LABEL, value: recap.counts.notStarted, color: '#ef4444' }
-    ])
+    ]) +
+    progressBar_(recap.counts.completedAbove, recap.counts.completedBelow, recap.counts.notStarted)
   );
 }
 
@@ -1718,7 +1801,9 @@ function buildManagerEmailHtml_(managerName, rows, testMode, intendedManagerEmai
         { label: COMPLETED_NOT_CLEARED_LABEL, value: lowScoreCount, color: '#f59e0b' },
         { label: NOT_STARTED_LABEL, value: incompleteCount, color: '#ef4444' },
         { label: 'Total Follow-Up Items', value: lowScoreCount + incompleteCount, color: '#6a62d2' }
-      ])
+      ]) +
+      progressBar_(0, lowScoreCount, incompleteCount) +
+      managerSimulationAveragesHtml_(rows)
     ) +
     '<div style="text-align:center;margin:18px 0 22px 0;">' +
       '<a href="' + REFLEXAI_PLATFORM_RESOURCE_URL + '" style="display:inline-block;background:#24205f;color:#ffffff;text-decoration:none;padding:12px 20px;border-radius:999px;font-weight:700;font-size:14px;">Watch ReflexAI Navigation Video</a>' +
@@ -1731,7 +1816,7 @@ function buildManagerEmailHtml_(managerName, rows, testMode, intendedManagerEmai
 
   return emailShell_(
     'ReflexAI Weekly Simulation Follow-Up',
-    'Varsity Tutors Coaching Enablement',
+    EMAIL_SUBTITLE,
     bodyHtml
   );
 }
@@ -1878,7 +1963,7 @@ function statusBadge_(status) {
     background = '#fff1f1';
   }
 
-  return '<span style="display:inline-block;border-radius:999px;background:' + background + ';color:' + color + ';font-weight:800;font-size:12px;padding:5px 9px;">' + escapeHtml_(value) + '</span>';
+  return '<span style="display:inline-block;border-radius:999px;background:' + background + ';color:' + color + ';font-weight:800;font-size:12px;padding:5px 9px;white-space:nowrap;">' + escapeHtml_(value) + '</span>';
 }
 
 function scoreBadge_(score) {
@@ -1897,7 +1982,7 @@ function scoreBadge_(score) {
     }
   }
 
-  return '<span style="display:inline-block;border-radius:999px;background:' + background + ';color:' + color + ';font-weight:900;font-size:12px;padding:5px 9px;">' + escapeHtml_(value) + '</span>';
+  return '<span style="display:inline-block;border-radius:999px;background:' + background + ';color:' + color + ';font-weight:900;font-size:12px;padding:5px 9px;white-space:nowrap;">' + escapeHtml_(value) + '</span>';
 }
 
 function summarizeActions_(simulations) {
