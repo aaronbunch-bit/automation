@@ -24,6 +24,12 @@ var COMPLETED_CLEARED_COLOR = '#4f8cff';
 var COMPLETED_NOT_CLEARED_COLOR = '#ffcc33';
 var NOT_STARTED_COLOR = '#ff3ec8';
 
+var EMAIL_NAME_OVERRIDES = {
+  'john wright ii': 'john.wright@varsitytutors.com',
+  'jennifer volugamore': 'jen.vulgamore@varsitytutors.com',
+  'jennifer vulgamore': 'jen.vulgamore@varsitytutors.com'
+};
+
 var TEST_EMAIL_RECIPIENTS = [
   'aaron.bunch@varsitytutors.com'
 ];
@@ -2321,6 +2327,11 @@ function formatCountPercent_(count, percent) {
 }
 
 function emailFromName_(name) {
+  var override = EMAIL_NAME_OVERRIDES[normalizePersonKey_(name)];
+  if (override) {
+    return override;
+  }
+
   var parts = String(name || '')
     .toLowerCase()
     .replace(/[^a-z0-9\s-]/g, '')
