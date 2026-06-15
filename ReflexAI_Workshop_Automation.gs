@@ -323,6 +323,9 @@ function sendManagerEmailBatches_(testMode) {
   var previouslyTestSent = 0;
   var skippedNoManagerEmail = 0;
   var skippedBlockedRecipients = 0;
+  var runSettings = getRunSettings_(spreadsheet);
+  var managerRoster = buildLookerManagerRoster_(spreadsheet);
+  var managerMetricBuckets = buildManagerMetricBuckets_(loadReflexAiCsvRows_(spreadsheet, runSettings), managerRoster);
 
   values.slice(1).forEach(function(row, offset) {
     var sheetRowNumber = offset + 2;
@@ -359,6 +362,7 @@ function sendManagerEmailBatches_(testMode) {
       grouped[managerEmail] = {
         managerName: row[col['Manager']] || '',
         recipientEmails: {},
+        metrics: managerMetricBuckets[managerEmail] || null,
         rows: []
       };
     }
@@ -416,7 +420,7 @@ function sendManagerEmailBatches_(testMode) {
       to: recipients,
       subject: (testMode ? '[TEST] ' : '') + 'ReflexAI Weekly Simulation Follow-Up',
       body: buildManagerEmailBody_(batch.managerName, batch.rows, testMode, managerEmail),
-      htmlBody: buildManagerEmailHtml_(batch.managerName, batch.rows, testMode, managerEmail)
+      htmlBody: buildManagerEmailHtml_(batch.managerName, batch.rows, testMode, managerEmail, batch.metrics)
     });
 
     batchesSent++;
@@ -454,6 +458,44 @@ function sendManagerEmailBatches_(testMode) {
     '\nRows skipped due to blocked John Paul/Riordan recipient: ' +
     skippedBlockedRecipients
   );
+}
+
+function buildManagerMetricBuckets_(csvRows, managerRoster) {
+  var buckets = {};
+
+  csvRows.forEach(function(row) {
+    var managerInfo = getManagerInfoForRep_(
+      managerRoster,
+      getValue_(row, 'User Email'),
+      getValue_(row, 'User Name')
+    );
+    var managerEmail = String(managerInfo.managerEmail || '').toLowerCase().trim();
+
+    if (!managerEmail || isBlockedJohnRiordanEmail_(managerEmail)) {
+      return;
+    }
+
+    if (!buckets[managerEmail]) {
+      buckets[managerEmail] = {
+        bucket: newMetricBucket_(managerInfo.managerName || ''),
+        rows: []
+      };
+    }
+
+    var score = parseScore_(getValue_(row, 'Best Score (%)'));
+    var category = classifySimulationOutcome_(getValue_(row, 'Status'), score);
+    addMetricOutcome_(buckets[managerEmail].bucket, category, score);
+    buckets[managerEmail].rows.push({
+      simulationName: getValue_(row, 'Simulation Name') || 'Unknown Simulation',
+      score: isNaN(score) ? '' : score / 100
+    });
+  });
+
+  Object.keys(buckets).forEach(function(managerEmail) {
+    buckets[managerEmail].bucket = finalizeMetricBucket_(buckets[managerEmail].bucket);
+  });
+
+  return buckets;
 }
 
 function sendTestSeniorLeadershipRecap() {
@@ -1820,10 +1862,13 @@ function buildManagerEmailBody_(managerName, rows, testMode, intendedManagerEmai
   return lines.join('\n');
 }
 
-function buildManagerEmailHtml_(managerName, rows, testMode, intendedManagerEmail) {
+function buildManagerEmailHtml_(managerName, rows, testMode, intendedManagerEmail, managerMetrics) {
   var sections = buildEmailSections_(rows);
-  var lowScoreCount = countGroupedSimulations_(sections.lowScoreGroups);
-  var incompleteCount = countGroupedSimulations_(sections.incompleteGroups);
+  var metricsBucket = managerMetrics && managerMetrics.bucket;
+  var averageRows = managerMetrics && managerMetrics.rows ? managerMetrics.rows : rows;
+  var completedClearedCount = metricsBucket ? metricsBucket.completedAbove : 0;
+  var lowScoreCount = metricsBucket ? metricsBucket.completedBelow : countGroupedSimulations_(sections.lowScoreGroups);
+  var incompleteCount = metricsBucket ? metricsBucket.notStarted : countGroupedSimulations_(sections.incompleteGroups);
 
   var bodyHtml = (testMode
       ? testBanner_(true, 'This batch would have gone to: ' + intendedManagerEmail)
@@ -1841,12 +1886,12 @@ function buildManagerEmailHtml_(managerName, rows, testMode, intendedManagerEmai
       'TEAM SNAPSHOT',
       'Follow-Up Items Included',
       metricTiles_([
-        { label: COMPLETED_CLEARED_LABEL, value: 0, color: COMPLETED_CLEARED_COLOR },
+        { label: COMPLETED_CLEARED_LABEL, value: completedClearedCount, color: COMPLETED_CLEARED_COLOR },
         { label: COMPLETED_NOT_CLEARED_LABEL, value: lowScoreCount, color: COMPLETED_NOT_CLEARED_COLOR },
         { label: NOT_STARTED_LABEL, value: incompleteCount, color: NOT_STARTED_COLOR }
       ]) +
-      progressBar_(0, lowScoreCount, incompleteCount) +
-      managerSimulationAveragesHtml_(rows)
+      progressBar_(completedClearedCount, lowScoreCount, incompleteCount) +
+      managerSimulationAveragesHtml_(averageRows)
     ) +
     buildHtmlSection_(COMPLETED_NOT_CLEARED_LABEL + ' - Priority', sections.lowScoreGroups, true) +
     buildHtmlSection_(NOT_STARTED_LABEL, sections.incompleteGroups, false) +
