@@ -412,11 +412,12 @@ function sendManagerEmailBatches_(testMode) {
 
   managerEmails.forEach(function(managerEmail) {
     var batch = grouped[managerEmail];
+    var intendedCcRecipients = Object.keys(batch.ccEmails).join(',');
 
     var recipients = testMode
       ? TEST_EMAIL_RECIPIENTS.join(',')
       : managerEmail;
-    var ccRecipients = testMode ? '' : Object.keys(batch.ccEmails).join(',');
+    var ccRecipients = testMode ? '' : intendedCcRecipients;
 
     if (!recipients) {
       skippedBlockedRecipients += batch.rows.length;
@@ -427,8 +428,8 @@ function sendManagerEmailBatches_(testMode) {
       to: recipients,
       cc: ccRecipients,
       subject: (testMode ? '[TEST] ' : '') + getCurrentMonthName_() + ' ReflexAI Weekly Simulation Follow-Up',
-      body: buildManagerEmailBody_(batch.managerName, batch.rows, testMode, managerEmail),
-      htmlBody: buildManagerEmailHtml_(batch.managerName, batch.rows, testMode, managerEmail, batch.metrics)
+      body: buildManagerEmailBody_(batch.managerName, batch.rows, testMode, managerEmail, intendedCcRecipients),
+      htmlBody: buildManagerEmailHtml_(batch.managerName, batch.rows, testMode, managerEmail, batch.metrics, intendedCcRecipients)
     });
 
     batchesSent++;
@@ -1900,12 +1901,13 @@ function writeRunLog_(spreadsheet, rowsProcessed, exceptionsFound, emailsSent) {
   ]);
 }
 
-function buildManagerEmailBody_(managerName, rows, testMode, intendedManagerEmail) {
+function buildManagerEmailBody_(managerName, rows, testMode, intendedManagerEmail, intendedCcRecipients) {
   var sections = buildEmailSections_(rows);
   var lines = [];
 
   if (testMode) {
     lines.push('TEST MODE - This batch would have gone to: ' + intendedManagerEmail);
+    lines.push('CC would have included: ' + (intendedCcRecipients || 'None'));
     lines.push('');
   }
 
@@ -1925,7 +1927,7 @@ function buildManagerEmailBody_(managerName, rows, testMode, intendedManagerEmai
   return lines.join('\n');
 }
 
-function buildManagerEmailHtml_(managerName, rows, testMode, intendedManagerEmail, managerMetrics) {
+function buildManagerEmailHtml_(managerName, rows, testMode, intendedManagerEmail, managerMetrics, intendedCcRecipients) {
   var sections = buildEmailSections_(rows);
   var metricsBucket = managerMetrics && managerMetrics.bucket;
   var averageRows = managerMetrics && managerMetrics.rows ? managerMetrics.rows : rows;
@@ -1934,7 +1936,7 @@ function buildManagerEmailHtml_(managerName, rows, testMode, intendedManagerEmai
   var incompleteCount = metricsBucket ? metricsBucket.notStarted : countGroupedSimulations_(sections.incompleteGroups);
 
   var bodyHtml = (testMode
-      ? testBanner_(true, 'This batch would have gone to: ' + intendedManagerEmail)
+      ? testBanner_(true, 'This batch would have gone to: ' + intendedManagerEmail + '. CC would have included: ' + (intendedCcRecipients || 'None'))
       : '') +
     introCard_(
       'Hi' + (managerName ? ' ' + managerName : '') + ',',
