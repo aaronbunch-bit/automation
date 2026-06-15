@@ -1,5 +1,6 @@
 var CSV_DUMP_SHEET_NAME = 'ReflexAI CSV Dump';
 var CSV_DUMP_SHEET_PREFIX = 'ReflexAI CSV - ';
+var MANAGER_ROSTER_SHEET_NAME = 'Manager Roster';
 var LOOKER_MANAGER_LOOKUP_SHEET_NAME = 'Looker Manager Lookup';
 var NAME_MATCH_OVERRIDES_SHEET_NAME = 'Name Match Overrides';
 var MISSING_LOOKER_PAIRINGS_SHEET_NAME = 'Missing Looker Manager Pairing';
@@ -374,7 +375,7 @@ function sendManagerEmailBatches_(testMode) {
     }
 
     var seniorEmail = String(row[col['Senior / Team Lead Email']] || '').toLowerCase().trim();
-    if (seniorEmail && isAllowedRecipientEmail_(seniorEmail)) {
+    if (seniorEmail && seniorEmail !== managerEmail && isAllowedRecipientEmail_(seniorEmail)) {
       grouped[managerEmail].ccEmails[seniorEmail] = true;
     }
 
@@ -1477,6 +1478,7 @@ function buildLookerManagerRoster_(spreadsheet) {
   var exactByName = {};
   var firstLastCandidates = {};
   var firstInitialLastCandidates = {};
+  var seniorRoster = buildManagerRosterSeniorLookup_(spreadsheet);
 
   rows.forEach(function(row) {
     var repName = getValue_(row, 'Manager');
@@ -1506,9 +1508,15 @@ function buildLookerManagerRoster_(spreadsheet) {
     var managerInfo = {
       managerName: managerName,
       managerEmail: managerEmail,
-      seniorName: managerName,
-      seniorEmail: managerEmail
+      seniorName: '',
+      seniorEmail: ''
     };
+    var seniorInfo = getSeniorInfoForRep_(seniorRoster, repEmail, repName);
+
+    if (seniorInfo.seniorName) {
+      managerInfo.seniorName = seniorInfo.seniorName;
+      managerInfo.seniorEmail = seniorInfo.seniorEmail;
+    }
 
     var normalizedRepName = normalizePersonKey_(repName);
     if (normalizedRepName) {
@@ -1539,6 +1547,54 @@ function buildLookerManagerRoster_(spreadsheet) {
   applyNameMatchOverrides_(spreadsheet, roster, exactByName);
 
   return roster;
+}
+
+function buildManagerRosterSeniorLookup_(spreadsheet) {
+  var rows = readSheetRows_(spreadsheet, MANAGER_ROSTER_SHEET_NAME);
+  var lookup = {};
+  var nameToEmail = {};
+
+  rows.forEach(function(row) {
+    var name = getValue_(row, 'Name');
+    var email = String(getValue_(row, 'Email') || '').toLowerCase().trim();
+    var normalizedName = normalizePersonKey_(name);
+
+    if (normalizedName && email) {
+      nameToEmail[normalizedName] = email;
+    }
+  });
+
+  rows.forEach(function(row) {
+    var repEmail = String(getValue_(row, 'Email') || '').toLowerCase().trim();
+    var repName = getValue_(row, 'Name');
+    var seniorName = getValue_(row, 'Senior');
+
+    if (!seniorName) {
+      return;
+    }
+
+    var seniorEmail = nameToEmail[normalizePersonKey_(seniorName)] || emailFromName_(seniorName);
+    var seniorInfo = {
+      seniorName: seniorName,
+      seniorEmail: seniorEmail
+    };
+
+    if (repEmail) {
+      lookup[repEmail] = seniorInfo;
+    }
+
+    if (repName) {
+      lookup[normalizePersonKey_(repName)] = seniorInfo;
+    }
+  });
+
+  return lookup;
+}
+
+function getSeniorInfoForRep_(seniorRoster, repEmail, repName) {
+  return seniorRoster[String(repEmail || '').toLowerCase().trim()] ||
+    seniorRoster[normalizePersonKey_(repName)] ||
+    {};
 }
 
 function getManagerInfoForRep_(managerRoster, repEmail, repName) {
