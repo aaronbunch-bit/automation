@@ -425,7 +425,7 @@ function sendManagerEmailBatches_(testMode) {
     MailApp.sendEmail({
       to: recipients,
       cc: ccRecipients,
-      subject: (testMode ? '[TEST] ' : '') + 'ReflexAI Weekly Simulation Follow-Up',
+      subject: (testMode ? '[TEST] ' : '') + getCurrentMonthName_() + ' ReflexAI Weekly Simulation Follow-Up',
       body: buildManagerEmailBody_(batch.managerName, batch.rows, testMode, managerEmail),
       htmlBody: buildManagerEmailHtml_(batch.managerName, batch.rows, testMode, managerEmail, batch.metrics)
     });
@@ -1905,7 +1905,7 @@ function buildManagerEmailHtml_(managerName, rows, testMode, intendedManagerEmai
     introCard_('Thank you.', 'Please use this report to prioritize coaching and completion follow-up.');
 
   return emailShell_(
-    'ReflexAI Weekly Simulation Follow-Up',
+    getCurrentMonthName_() + ' ReflexAI Weekly Simulation Follow-Up',
     EMAIL_SUBTITLE,
     bodyHtml
   );
