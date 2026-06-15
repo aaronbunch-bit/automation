@@ -361,16 +361,15 @@ function sendManagerEmailBatches_(testMode) {
     if (!grouped[managerEmail]) {
       grouped[managerEmail] = {
         managerName: row[col['Manager']] || '',
-        recipientEmails: {},
+        ccEmails: {},
         metrics: managerMetricBuckets[managerEmail] || null,
         rows: []
       };
     }
 
-    grouped[managerEmail].recipientEmails[managerEmail] = true;
     var seniorEmail = String(row[col['Senior / Team Lead Email']] || '').toLowerCase().trim();
     if (seniorEmail && isAllowedRecipientEmail_(seniorEmail)) {
-      grouped[managerEmail].recipientEmails[seniorEmail] = true;
+      grouped[managerEmail].ccEmails[seniorEmail] = true;
     }
 
     grouped[managerEmail].rows.push({
@@ -409,7 +408,8 @@ function sendManagerEmailBatches_(testMode) {
 
     var recipients = testMode
       ? TEST_EMAIL_RECIPIENTS.join(',')
-      : Object.keys(batch.recipientEmails).filter(isAllowedRecipientEmail_).join(',');
+      : managerEmail;
+    var ccRecipients = testMode ? '' : Object.keys(batch.ccEmails).join(',');
 
     if (!recipients) {
       skippedBlockedRecipients += batch.rows.length;
@@ -418,6 +418,7 @@ function sendManagerEmailBatches_(testMode) {
 
     MailApp.sendEmail({
       to: recipients,
+      cc: ccRecipients,
       subject: (testMode ? '[TEST] ' : '') + 'ReflexAI Weekly Simulation Follow-Up',
       body: buildManagerEmailBody_(batch.managerName, batch.rows, testMode, managerEmail),
       htmlBody: buildManagerEmailHtml_(batch.managerName, batch.rows, testMode, managerEmail, batch.metrics)
