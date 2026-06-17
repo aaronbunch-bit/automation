@@ -346,15 +346,6 @@ function sendManagerEmailBatches_(testMode) {
       return;
     }
 
-    if (sentStatus === 'yes') {
-      skippedAlreadyManagerSent++;
-      return;
-    }
-
-    if (testMode && testSentStatus === 'y') {
-      previouslyTestSent++;
-    }
-
     if (!managerEmail) {
       skippedNoManagerEmail++;
       return;
@@ -370,6 +361,7 @@ function sendManagerEmailBatches_(testMode) {
         managerName: row[col['Manager']] || '',
         ccEmails: {},
         metrics: managerMetricBuckets[managerEmail] || null,
+        allRows: [],
         rows: []
       };
     }
@@ -379,7 +371,7 @@ function sendManagerEmailBatches_(testMode) {
       grouped[managerEmail].ccEmails[seniorEmail] = true;
     }
 
-    grouped[managerEmail].rows.push({
+    var rowItem = {
       sheetRowNumber: sheetRowNumber,
       repName: row[col['Representative']] || '',
       repEmail: row[col['Representative Email']] || '',
@@ -388,10 +380,25 @@ function sendManagerEmailBatches_(testMode) {
       status: row[col['Completion Status']] || '',
       score: row[col['Score']],
       action: action
-    });
+    };
+
+    grouped[managerEmail].allRows.push(rowItem);
+
+    if (testMode && testSentStatus === 'y') {
+      previouslyTestSent++;
+    }
+
+    if (sentStatus === 'yes' && !testMode) {
+      skippedAlreadyManagerSent++;
+      return;
+    }
+
+    grouped[managerEmail].rows.push(rowItem);
   });
 
-  var managerEmails = Object.keys(grouped);
+  var managerEmails = Object.keys(grouped).filter(function(managerEmail) {
+    return testMode ? grouped[managerEmail].allRows.length : grouped[managerEmail].rows.length;
+  });
 
   if (!managerEmails.length) {
     SpreadsheetApp.getUi().alert(
@@ -428,8 +435,8 @@ function sendManagerEmailBatches_(testMode) {
       to: recipients,
       cc: ccRecipients,
       subject: (testMode ? '[TEST] ' : '') + getCurrentMonthName_() + ' ReflexAI Weekly Simulation Follow-Up',
-      body: buildManagerEmailBody_(batch.managerName, batch.rows, testMode, managerEmail, intendedCcRecipients),
-      htmlBody: buildManagerEmailHtml_(batch.managerName, batch.rows, testMode, managerEmail, batch.metrics, intendedCcRecipients)
+      body: buildManagerEmailBody_(batch.managerName, batch.allRows, testMode, managerEmail, intendedCcRecipients),
+      htmlBody: buildManagerEmailHtml_(batch.managerName, batch.allRows, testMode, managerEmail, batch.metrics, intendedCcRecipients)
     });
 
     batchesSent++;
