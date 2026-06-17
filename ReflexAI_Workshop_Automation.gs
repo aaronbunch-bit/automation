@@ -1934,9 +1934,9 @@ function buildManagerEmailHtml_(managerName, rows, testMode, intendedManagerEmai
       progressBar_(completedClearedCount, lowScoreCount, incompleteCount) +
       managerSimulationAveragesHtml_(averageRows)
     ) +
-    buildHtmlSection_(COMPLETED_CLEARED_LABEL, sections.completedClearedGroups, false) +
     buildHtmlSection_(COMPLETED_NOT_CLEARED_LABEL + ' - Priority', sections.lowScoreGroups, true) +
     buildHtmlSection_(NOT_STARTED_LABEL, sections.incompleteGroups, false) +
+    buildHtmlSection_(COMPLETED_CLEARED_LABEL, sections.completedClearedGroups, false) +
     introCard_('Thank you.', 'Please use this report to prioritize coaching and completion follow-up.');
 
   return emailShell_(
@@ -2064,7 +2064,7 @@ function buildHtmlSection_(title, groups, useScoreGradient) {
       return '<tr' + rowStyle + '>' +
         leadingCells +
         '<td>' + escapeHtml_(item.simulationName) + '</td>' +
-        '<td>' + statusBadge_(item.status) + '</td>' +
+        '<td>' + statusBadge_(item.status, useScoreGradient ? 'warning' : '') + '</td>' +
         '<td>' + scoreBadge_(item.score) + '</td>' +
         actionCell +
         '</tr>';
@@ -2072,19 +2072,22 @@ function buildHtmlSection_(title, groups, useScoreGradient) {
   }).join('');
 
   return sectionCard_(
-    useScoreGradient ? 'PRIORITY FOLLOW-UP' : 'ACTION NEEDED',
+    title === COMPLETED_CLEARED_LABEL ? 'NO ACTION NEEDED' : (useScoreGradient ? 'PRIORITY FOLLOW-UP' : 'ACTION NEEDED'),
     title,
     styledTable_(['Representative', 'Journey', 'Simulation', 'Status', 'Score', 'Follow-up Action'], tableRows)
   );
 }
 
-function statusBadge_(status) {
+function statusBadge_(status, tone) {
   var value = String(status || '').trim() || 'No Status';
   var normalized = value.toLowerCase();
   var color = '#6a62d2';
   var background = '#f1efff';
 
-  if (normalized.indexOf('completed') !== -1) {
+  if (tone === 'warning') {
+    color = '#9a6a00';
+    background = '#fff8df';
+  } else if (normalized.indexOf('completed') !== -1) {
     color = '#245bc5';
     background = '#eef5ff';
   } else if (normalized.indexOf('not') !== -1 || normalized.indexOf('progress') !== -1 || normalized.indexOf('started') !== -1) {
