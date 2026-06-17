@@ -15,6 +15,7 @@ var DEFAULT_JOURNEY_NAME = 'High School Year Round Workshops - Jun';
 
 var COMPLETE_SIMULATION_ACTION = 'Ask representative to complete this simulation and schedule time via Assembled for representative to complete the simulation adhering to capacity constraints.';
 var RETAKE_SIMULATION_ACTION = 'Ask representative to retake this simulation and coach on missed skills.';
+var NO_FOLLOW_UP_ACTION = 'No follow-up required.';
 var REFLEXAI_PLATFORM_RESOURCE_URL = 'https://drive.google.com/file/d/18X5z6iRGRk-fKY4bAvIxswwys3ne2z3r/view';
 var REFLEXAI_LOGIN_URL = 'https://varsitytutors.reflexai.com/home';
 var EMAIL_SUBTITLE = 'Varsity Tutors Quality Assurance Pillar';
@@ -309,40 +310,27 @@ function sendManagerExceptionEmails() {
 
 function sendManagerEmailBatches_(testMode) {
   var spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
-  var sheet = spreadsheet.getSheetByName(EXCEPTION_SHEET_NAME);
+  var runSettings = getRunSettings_(spreadsheet);
+  var managerRoster = buildLookerManagerRoster_(spreadsheet);
+  var csvRows = loadReflexAiCsvRows_(spreadsheet, runSettings);
+  var grouped = {};
+  var skippedMissingManager = 0;
+  var skippedNoManagerEmail = 0;
+  var skippedBlockedRecipients = 0;
 
-  if (!sheet || sheet.getLastRow() < 2) {
-    SpreadsheetApp.getUi().alert('No exception rows found. Run the report first.');
+  if (!csvRows.length) {
+    SpreadsheetApp.getUi().alert('No CSV data found. Import ReflexAI CSV data into "' + CSV_DUMP_SHEET_NAME + '" or tabs named "' + CSV_DUMP_SHEET_PREFIX + '[Journey Name]".');
     return;
   }
 
-  ensureExceptionTrackingHeaders_(sheet);
+  csvRows.forEach(function(row) {
+    var userName = getValue_(row, 'User Name');
+    var userEmail = getValue_(row, 'User Email');
+    var managerInfo = getManagerInfoForRep_(managerRoster, userEmail, userName);
+    var managerEmail = String(managerInfo.managerEmail || '').toLowerCase().trim();
 
-  var values = sheet.getDataRange().getValues();
-  var headers = values[0].map(function(header) {
-    return String(header).trim();
-  });
-
-  var col = buildColumnIndex_(headers);
-
-  var grouped = {};
-  var skippedAlreadyManagerSent = 0;
-  var previouslyTestSent = 0;
-  var skippedNoManagerEmail = 0;
-  var skippedBlockedRecipients = 0;
-  var runSettings = getRunSettings_(spreadsheet);
-  var managerRoster = buildLookerManagerRoster_(spreadsheet);
-  var managerMetricBuckets = buildManagerMetricBuckets_(loadReflexAiCsvRows_(spreadsheet, runSettings), managerRoster);
-
-  values.slice(1).forEach(function(row, offset) {
-    var sheetRowNumber = offset + 2;
-
-    var managerEmail = String(row[col['Manager Email']] || '').toLowerCase().trim();
-    var sentStatus = String(row[col['Manager Email Sent']] || '').toLowerCase().trim();
-    var testSentStatus = String(row[col['Test Sent']] || '').toLowerCase().trim();
-    var action = String(row[col['Required Follow-up Action']] || '').trim();
-
-    if (!action) {
+    if (!managerInfo.managerName) {
+      skippedMissingManager++;
       return;
     }
 
@@ -358,67 +346,66 @@ function sendManagerEmailBatches_(testMode) {
 
     if (!grouped[managerEmail]) {
       grouped[managerEmail] = {
-        managerName: row[col['Manager']] || '',
+        managerName: managerInfo.managerName || '',
         ccEmails: {},
-        metrics: managerMetricBuckets[managerEmail] || null,
+        metricBucket: newMetricBucket_(managerInfo.managerName || ''),
+        metricRows: [],
+        metrics: null,
         allRows: [],
         rows: []
       };
     }
 
-    var seniorEmail = String(row[col['Senior / Team Lead Email']] || '').toLowerCase().trim();
+    var seniorEmail = String(managerInfo.seniorEmail || '').toLowerCase().trim();
     if (seniorEmail && seniorEmail !== managerEmail && isAllowedRecipientEmail_(seniorEmail)) {
       grouped[managerEmail].ccEmails[seniorEmail] = true;
     }
 
+    var score = parseScore_(getValue_(row, 'Best Score (%)'));
+    var category = classifySimulationOutcome_(getValue_(row, 'Status'), score);
     var rowItem = {
-      sheetRowNumber: sheetRowNumber,
-      repName: row[col['Representative']] || '',
-      repEmail: row[col['Representative Email']] || '',
-      journeyName: row[col['Journey']] || '',
-      simulationName: row[col['Simulation']] || '',
-      status: row[col['Completion Status']] || '',
-      score: row[col['Score']],
-      action: action
+      repName: userName,
+      repEmail: userEmail,
+      journeyName: getJourneyNameForRow_(row, runSettings),
+      simulationName: getValue_(row, 'Simulation Name') || 'Unknown Simulation',
+      status: getValue_(row, 'Status') || '',
+      score: isNaN(score) ? '' : score / 100,
+      action: actionForOutcome_(category)
     };
 
     grouped[managerEmail].allRows.push(rowItem);
-
-    if (testMode && testSentStatus === 'y') {
-      previouslyTestSent++;
-    }
-
-    if (sentStatus === 'yes' && !testMode) {
-      skippedAlreadyManagerSent++;
-      return;
-    }
-
     grouped[managerEmail].rows.push(rowItem);
+    addMetricOutcome_(grouped[managerEmail].metricBucket, category, score);
+    grouped[managerEmail].metricRows.push({
+      simulationName: rowItem.simulationName,
+      score: rowItem.score
+    });
   });
 
   var managerEmails = Object.keys(grouped).filter(function(managerEmail) {
-    return testMode ? grouped[managerEmail].allRows.length : grouped[managerEmail].rows.length;
+    return grouped[managerEmail].allRows.length;
   });
 
   if (!managerEmails.length) {
     SpreadsheetApp.getUi().alert(
-      'No unsent notifications found.\n\n' +
-      'Already manager-sent rows skipped: ' +
-      skippedAlreadyManagerSent +
-      '\nPreviously test-sent rows included for retest: ' +
-      previouslyTestSent +
+      'No manager email batches found.\n\n' +
+      'Rows missing Looker manager pairing: ' +
+      skippedMissingManager +
       '\nRows missing manager email: ' +
       skippedNoManagerEmail
     );
     return;
   }
 
-  var sentAt = new Date();
   var batchesSent = 0;
-  var rowsMarked = 0;
+  var rowsIncluded = 0;
 
   managerEmails.forEach(function(managerEmail) {
     var batch = grouped[managerEmail];
+    batch.metrics = {
+      bucket: finalizeMetricBucket_(batch.metricBucket),
+      rows: batch.metricRows
+    };
     var intendedCcRecipients = Object.keys(batch.ccEmails).join(',');
 
     var recipients = testMode
@@ -427,7 +414,7 @@ function sendManagerEmailBatches_(testMode) {
     var ccRecipients = testMode ? '' : intendedCcRecipients;
 
     if (!recipients) {
-      skippedBlockedRecipients += batch.rows.length;
+      skippedBlockedRecipients += batch.allRows.length;
       return;
     }
 
@@ -440,35 +427,17 @@ function sendManagerEmailBatches_(testMode) {
     });
 
     batchesSent++;
-
-    batch.rows.forEach(function(item) {
-      if (testMode) {
-        sheet.getRange(item.sheetRowNumber, col['Test Sent'] + 1).setValue('Y');
-      } else {
-        sheet.getRange(item.sheetRowNumber, col['Manager Email Sent'] + 1).setValue('Yes');
-        sheet.getRange(item.sheetRowNumber, col['Manager Email Sent At'] + 1).setValue(sentAt);
-      }
-
-      rowsMarked++;
-    });
+    rowsIncluded += batch.allRows.length;
   });
-
-  if (!testMode) {
-    sheet
-      .getRange(2, col['Manager Email Sent At'] + 1, Math.max(sheet.getLastRow() - 1, 1), 1)
-      .setNumberFormat('m/d/yyyy h:mm AM/PM');
-  }
 
   SpreadsheetApp.getUi().alert(
     (testMode ? 'Test emails sent.' : 'Manager emails sent.') +
     '\n\nBatches sent: ' +
     batchesSent +
-    '\nRows marked: ' +
-    rowsMarked +
-    '\nAlready manager-sent rows skipped: ' +
-    skippedAlreadyManagerSent +
-    '\nPreviously test-sent rows included for retest: ' +
-    previouslyTestSent +
+    '\nRows included: ' +
+    rowsIncluded +
+    '\nRows missing Looker manager pairing: ' +
+    skippedMissingManager +
     '\nRows missing manager email: ' +
     skippedNoManagerEmail +
     '\nRows skipped due to blocked John Paul/Riordan recipient: ' +
@@ -1920,11 +1889,11 @@ function buildManagerEmailBody_(managerName, rows, testMode, intendedManagerEmai
 
   lines.push('Hi' + (managerName ? ' ' + managerName : '') + ',');
   lines.push('');
-  lines.push('Below are ReflexAI simulation follow-up items for your team.');
-  lines.push('Only ' + NOT_STARTED_LABEL + ' or ' + COMPLETED_NOT_CLEARED_LABEL + ' simulations are included.');
+  lines.push('Below is the latest ReflexAI simulation status for your team.');
   lines.push('Please use this video as a resource for navigating the ReflexAI Platform for further insights: ' + REFLEXAI_PLATFORM_RESOURCE_URL);
   lines.push('');
 
+  appendPlainTextSection_(lines, COMPLETED_CLEARED_LABEL, sections.completedClearedGroups);
   appendPlainTextSection_(lines, COMPLETED_NOT_CLEARED_LABEL + ' - Priority', sections.lowScoreGroups);
   appendPlainTextSection_(lines, NOT_STARTED_LABEL, sections.incompleteGroups);
 
@@ -1947,7 +1916,7 @@ function buildManagerEmailHtml_(managerName, rows, testMode, intendedManagerEmai
       : '') +
     introCard_(
       'Hi' + (managerName ? ' ' + managerName : '') + ',',
-      'Below are ReflexAI simulation follow-up items for your team. Only ' + NOT_STARTED_LABEL + ' or ' + COMPLETED_NOT_CLEARED_LABEL + ' simulations are included.'
+      'Below is the latest ReflexAI simulation status for your team.'
     ) +
     '<div style="text-align:center;margin:18px 0 22px 0;">' +
       '<a href="' + REFLEXAI_PLATFORM_RESOURCE_URL + '" style="display:inline-block;background:#24205f;color:#ffffff;text-decoration:none;padding:12px 20px;border-radius:999px;font-weight:700;font-size:14px;">Watch ReflexAI Navigation Video</a>' +
@@ -1965,6 +1934,7 @@ function buildManagerEmailHtml_(managerName, rows, testMode, intendedManagerEmai
       progressBar_(completedClearedCount, lowScoreCount, incompleteCount) +
       managerSimulationAveragesHtml_(averageRows)
     ) +
+    buildHtmlSection_(COMPLETED_CLEARED_LABEL, sections.completedClearedGroups, false) +
     buildHtmlSection_(COMPLETED_NOT_CLEARED_LABEL + ' - Priority', sections.lowScoreGroups, true) +
     buildHtmlSection_(NOT_STARTED_LABEL, sections.incompleteGroups, false) +
     introCard_('Thank you.', 'Please use this report to prioritize coaching and completion follow-up.');
@@ -1983,11 +1953,14 @@ function countGroupedSimulations_(groups) {
 }
 
 function buildEmailSections_(rows) {
+  var completedClearedRows = [];
   var lowScoreRows = [];
   var incompleteRows = [];
 
   rows.forEach(function(row) {
-    if (isBelowThresholdEmailRow_(row)) {
+    if (isCompletedClearedEmailRow_(row)) {
+      completedClearedRows.push(row);
+    } else if (isBelowThresholdEmailRow_(row)) {
       lowScoreRows.push(row);
     } else {
       incompleteRows.push(row);
@@ -1995,6 +1968,7 @@ function buildEmailSections_(rows) {
   });
 
   return {
+    completedClearedGroups: aggregateEmailRowsByRepJourney_(completedClearedRows),
     lowScoreGroups: aggregateEmailRowsByRepJourney_(lowScoreRows),
     incompleteGroups: aggregateEmailRowsByRepJourney_(incompleteRows)
   };
@@ -2144,6 +2118,11 @@ function scoreBadge_(score) {
 }
 
 function summarizeActions_(simulations) {
+  var allCleared = simulations.every(function(item) {
+    return isCompletedClearedEmailRow_(item);
+  });
+  if (allCleared) return NO_FOLLOW_UP_ACTION;
+
   var hasLowScore = simulations.some(function(item) {
     return isBelowThresholdEmailRow_(item);
   });
@@ -2153,6 +2132,17 @@ function summarizeActions_(simulations) {
   }
 
   return COMPLETE_SIMULATION_ACTION;
+}
+
+function actionForOutcome_(category) {
+  if (category === 'completedAbove') return NO_FOLLOW_UP_ACTION;
+  if (category === 'completedBelow') return RETAKE_SIMULATION_ACTION;
+  return COMPLETE_SIMULATION_ACTION;
+}
+
+function isCompletedClearedEmailRow_(row) {
+  var scorePercent = parseEmailScorePercent_(row.score);
+  return isFinite(scorePercent) && scorePercent >= PASSING_SCORE_PERCENT;
 }
 
 function isBelowThresholdEmailRow_(row) {
