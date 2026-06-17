@@ -3,6 +3,7 @@ var CSV_DUMP_SHEET_PREFIX = 'ReflexAI CSV - ';
 var MANAGER_ROSTER_SHEET_NAME = 'Manager Roster';
 var LOOKER_MANAGER_LOOKUP_SHEET_NAME = 'Looker Manager Lookup';
 var NAME_MATCH_OVERRIDES_SHEET_NAME = 'Name Match Overrides';
+var REMOVED_REPS_SHEET_NAME = 'Removed Reps';
 var MISSING_LOOKER_PAIRINGS_SHEET_NAME = 'Missing Looker Manager Pairing';
 var EXCEPTION_SHEET_NAME = 'Simulation Exceptions';
 var RUN_LOG_SHEET_NAME = 'Run Log';
@@ -110,6 +111,13 @@ var NAME_MATCH_OVERRIDES_HEADERS = [
   'Looker Name'
 ];
 
+var REMOVED_REPS_HEADERS = [
+  'Representative Email',
+  'Representative Name',
+  'Reason',
+  'Notes'
+];
+
 var EXCEPTION_HEADERS = [
   'Report Run At',
   'Representative',
@@ -153,6 +161,7 @@ function createSetupSheets() {
   });
   createSheetWithHeaders_(spreadsheet, LOOKER_MANAGER_LOOKUP_SHEET_NAME, LOOKER_MANAGER_LOOKUP_HEADERS);
   createSheetWithHeaders_(spreadsheet, NAME_MATCH_OVERRIDES_SHEET_NAME, NAME_MATCH_OVERRIDES_HEADERS);
+  createSheetWithHeaders_(spreadsheet, REMOVED_REPS_SHEET_NAME, REMOVED_REPS_HEADERS);
   createSheetWithHeaders_(spreadsheet, MISSING_LOOKER_PAIRINGS_SHEET_NAME, MISSING_LOOKER_PAIRINGS_HEADERS);
   createSheetWithHeaders_(spreadsheet, EXCEPTION_SHEET_NAME, EXCEPTION_HEADERS);
   createRunSettingsSheet_(spreadsheet);
@@ -2237,11 +2246,68 @@ function loadReflexAiCsvRows_(spreadsheet, runSettings) {
   });
 
   if (bulkRows.length) {
-    return bulkRows;
+    return filterRemovedReps_(spreadsheet, bulkRows);
   }
 
   legacyRows = legacyRows.concat(annotateRowsWithJourney_(readSheetRows_(spreadsheet, CSV_DUMP_SHEET_NAME), defaultJourneyName));
-  return legacyRows;
+  return filterRemovedReps_(spreadsheet, legacyRows);
+}
+
+function filterRemovedReps_(spreadsheet, rows) {
+  var removalLookup = buildRemovedRepLookup_(spreadsheet);
+
+  if (!removalLookup.hasEntries) {
+    return rows;
+  }
+
+  return rows.filter(function(row) {
+    var email = String(getValue_(row, 'User Email') || '').toLowerCase().trim();
+    var name = normalizePersonKey_(getValue_(row, 'User Name'));
+
+    if (email && removalLookup.emails[email]) {
+      return false;
+    }
+
+    if (name && removalLookup.names[name]) {
+      return false;
+    }
+
+    return true;
+  });
+}
+
+function buildRemovedRepLookup_(spreadsheet) {
+  var rows = readSheetRows_(spreadsheet, REMOVED_REPS_SHEET_NAME);
+  var lookup = {
+    emails: {},
+    names: {},
+    hasEntries: false
+  };
+
+  rows.forEach(function(row) {
+    var email = String(getFirstNonBlankValue_(row, [
+      'Representative Email',
+      'Email',
+      'User Email'
+    ]) || '').toLowerCase().trim();
+    var name = normalizePersonKey_(getFirstNonBlankValue_(row, [
+      'Representative Name',
+      'Name',
+      'User Name'
+    ]));
+
+    if (email) {
+      lookup.emails[email] = true;
+      lookup.hasEntries = true;
+    }
+
+    if (name) {
+      lookup.names[name] = true;
+      lookup.hasEntries = true;
+    }
+  });
+
+  return lookup;
 }
 
 function annotateRowsWithJourney_(rows, journeyName) {
