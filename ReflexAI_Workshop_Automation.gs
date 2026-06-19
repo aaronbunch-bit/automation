@@ -1078,13 +1078,29 @@ function buildDirectorNotStartedTable_(rows) {
     return '';
   }
 
-  var tableRows = rows.map(function(row) {
-    return '<tr>' +
-      '<td>' + escapeHtml_(row.supergroupName) + '</td>' +
-      '<td>' + escapeHtml_(row.managerName) + '</td>' +
-      '<td>' + escapeHtml_(row.reps.join(', ')) + '</td>' +
-      '<td>' + row.reps.length + '</td>' +
-      '</tr>';
+  var rowsBySupergroup = {};
+  rows.forEach(function(row) {
+    if (!rowsBySupergroup[row.supergroupName]) {
+      rowsBySupergroup[row.supergroupName] = [];
+    }
+    rowsBySupergroup[row.supergroupName].push(row);
+  });
+
+  var tableRows = Object.keys(rowsBySupergroup).sort().map(function(supergroupName) {
+    var managerRows = rowsBySupergroup[supergroupName];
+
+    return managerRows.map(function(row, index) {
+      var supergroupCell = index === 0
+        ? '<td rowspan="' + managerRows.length + '">' + escapeHtml_(supergroupName) + '</td>'
+        : '';
+
+      return '<tr>' +
+        supergroupCell +
+        '<td>' + escapeHtml_(row.managerName) + '</td>' +
+        '<td>' + escapeHtml_(row.reps.join(', ')) + '</td>' +
+        '<td>' + row.reps.length + '</td>' +
+        '</tr>';
+    }).join('');
   }).join('');
 
   return sectionCard_(
