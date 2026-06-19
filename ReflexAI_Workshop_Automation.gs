@@ -11,7 +11,7 @@ var RUN_SETTINGS_SHEET_NAME = 'Run Settings';
 var LOOKER_MANAGER_SOURCE_SPREADSHEET_ID = '1a6bE3cI-98tbAMyGizZwrsj3pQJdwXd1GMf5oxmFHUo';
 var LOOKER_MANAGER_SOURCE_RANGE = "'Sales Roster Update.csv'!A:G";
 
-var PASSING_SCORE_PERCENT = 80;
+var PASSING_SCORE_PERCENT = 70;
 var DEFAULT_JOURNEY_NAME = 'High School Year Round Workshops - Jun';
 
 var COMPLETE_SIMULATION_ACTION = 'Ask representative to complete this simulation and schedule time via Assembled for representative to complete the simulation adhering to capacity constraints.';
@@ -20,8 +20,8 @@ var NO_FOLLOW_UP_ACTION = 'No follow-up required.';
 var REFLEXAI_PLATFORM_RESOURCE_URL = 'https://drive.google.com/file/d/18X5z6iRGRk-fKY4bAvIxswwys3ne2z3r/view';
 var REFLEXAI_LOGIN_URL = 'https://varsitytutors.reflexai.com/home';
 var EMAIL_SUBTITLE = 'Varsity Tutors Quality Assurance Pillar';
-var COMPLETED_CLEARED_LABEL = 'Completed & Cleared 80% Threshold';
-var COMPLETED_NOT_CLEARED_LABEL = 'Completed & Not Cleared 80% Threshold';
+var COMPLETED_CLEARED_LABEL = 'Completed & Cleared 70% Threshold';
+var COMPLETED_NOT_CLEARED_LABEL = 'Completed & Not Cleared 70% Threshold';
 var NOT_STARTED_LABEL = 'Not Started';
 var COMPLETED_CLEARED_COLOR = '#4f8cff';
 var COMPLETED_NOT_CLEARED_COLOR = '#ffcc33';
@@ -646,7 +646,8 @@ function buildDirectorRecap_(csvRows, managerRoster, runSettings) {
     supergroupName: getCurrentSupergroupName_(csvRows, runSettings || {}),
     company: newMetricBucket_(),
     bySupergroup: {},
-    byManager: {}
+    byManager: {},
+    notStartedDetails: {}
   };
 
   csvRows.forEach(function(row) {
@@ -678,6 +679,10 @@ function buildDirectorRecap_(csvRows, managerRoster, runSettings) {
       recap.byManager[managerKey].managerEmail = managerEmail;
     }
     addMetricOutcome_(recap.byManager[managerKey], category, score);
+
+    if (category === 'notStarted') {
+      addDirectorNotStartedDetail_(recap.notStartedDetails, supergroupName, managerName, userName);
+    }
   });
 
   recap.supergroupRows = Object.keys(recap.bySupergroup)
@@ -695,7 +700,38 @@ function buildDirectorRecap_(csvRows, managerRoster, runSettings) {
     .sort(metricRankSort_);
 
   recap.company = finalizeMetricBucket_(recap.company);
+  recap.notStartedRows = buildDirectorNotStartedRows_(recap.notStartedDetails);
   return recap;
+}
+
+function addDirectorNotStartedDetail_(details, supergroupName, managerName, repName) {
+  if (!repName) return;
+
+  if (!details[supergroupName]) {
+    details[supergroupName] = {};
+  }
+
+  if (!details[supergroupName][managerName]) {
+    details[supergroupName][managerName] = {};
+  }
+
+  details[supergroupName][managerName][repName] = true;
+}
+
+function buildDirectorNotStartedRows_(details) {
+  var rows = [];
+
+  Object.keys(details).sort().forEach(function(supergroupName) {
+    Object.keys(details[supergroupName]).sort().forEach(function(managerName) {
+      rows.push({
+        supergroupName: supergroupName,
+        managerName: managerName,
+        reps: Object.keys(details[supergroupName][managerName]).sort()
+      });
+    });
+  });
+
+  return rows;
 }
 
 function newMetricBucket_(name) {
@@ -765,6 +801,7 @@ function buildDirectorEmailText_(recap, testMode) {
   lines.push('');
   appendDirectorTextSection_(lines, 'Supergroup Breakdown', recap.supergroupRows.concat([companySummaryRow_(recap.company)]));
   appendDirectorTextSection_(lines, 'Manager Breakdown', recap.managerRows);
+  appendDirectorNotStartedTextSection_(lines, recap.notStartedRows);
 
   return lines.join('\n');
 }
@@ -780,6 +817,21 @@ function appendDirectorTextSection_(lines, title, rows) {
       ' | Average Completed Score: ' + formatScore_(row.completedAverageScore)
     );
   });
+  lines.push('');
+}
+
+function appendDirectorNotStartedTextSection_(lines, rows) {
+  if (!rows || !rows.length) {
+    return;
+  }
+
+  lines.push('Not Started Details');
+  lines.push('Reference list for the Manager Breakdown section, grouped by supergroup and manager.');
+
+  rows.forEach(function(row) {
+    lines.push(row.supergroupName + ' | ' + row.managerName + ' | ' + row.reps.join(', '));
+  });
+
   lines.push('');
 }
 
@@ -983,7 +1035,8 @@ function buildDirectorEmailHtml_(recap, testMode) {
       ])
     ) +
     buildDirectorTable_('Supergroup Breakdown', recap.supergroupRows.concat([companySummaryRow_(recap.company)]), 'Supergroup') +
-    buildDirectorTable_('Manager Breakdown', recap.managerRows, 'Manager');
+    buildDirectorTable_('Manager Breakdown', recap.managerRows, 'Manager') +
+    buildDirectorNotStartedTable_(recap.notStartedRows);
 
   return emailShell_(
     getCurrentMonthName_() + ' ' + recap.supergroupName + ' ReflexAI Director Recap',
@@ -1017,6 +1070,28 @@ function buildDirectorTable_(title, rows, firstColumnLabel) {
       'Average Completed Score',
       'Total'
     ], tableRows)
+  );
+}
+
+function buildDirectorNotStartedTable_(rows) {
+  if (!rows || !rows.length) {
+    return '';
+  }
+
+  var tableRows = rows.map(function(row) {
+    return '<tr>' +
+      '<td>' + escapeHtml_(row.supergroupName) + '</td>' +
+      '<td>' + escapeHtml_(row.managerName) + '</td>' +
+      '<td>' + escapeHtml_(row.reps.join(', ')) + '</td>' +
+      '<td>' + row.reps.length + '</td>' +
+      '</tr>';
+  }).join('');
+
+  return sectionCard_(
+    'REFERENCE LIST',
+    'Not Started Details',
+    '<div style="font-size:13px;line-height:19px;color:#4d49a3;margin-bottom:12px;">Available as supporting detail for the Manager Breakdown section. Grouped by supergroup and manager to keep the recap compact.</div>' +
+    styledTable_(['Supergroup', 'Manager', 'Representatives', 'Count'], tableRows)
   );
 }
 
@@ -2094,6 +2169,9 @@ function statusBadge_(status, tone) {
   var background = '#f1efff';
 
   if (tone === 'warning') {
+    if (normalized.indexOf('completed') !== -1) {
+      value = 'Attempted';
+    }
     color = '#9a6a00';
     background = '#fff8df';
   } else if (normalized.indexOf('completed') !== -1) {
