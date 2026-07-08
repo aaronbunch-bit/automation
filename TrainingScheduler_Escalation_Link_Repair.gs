@@ -90,6 +90,14 @@ function repairEscalationLinks() {
   );
 }
 
+/**
+ * Backward-compatible alias for menu entries accidentally configured with a
+ * lowercase function name. Apps Script menu function names are case-sensitive.
+ */
+function repairescalationlinks() {
+  repairEscalationLinks();
+}
+
 function tsEnsureEscalateLinkColumn_(sheet) {
   var lastColumn = Math.max(sheet.getLastColumn(), TS.OFFER_COLS.ESCALATE_TOKEN);
   var headers = sheet.getRange(1, 1, 1, lastColumn).getValues()[0].map(function(header) {
