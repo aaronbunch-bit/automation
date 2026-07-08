@@ -11,7 +11,7 @@ var RUN_SETTINGS_SHEET_NAME = 'Run Settings';
 var LOOKER_MANAGER_SOURCE_SPREADSHEET_ID = '1a6bE3cI-98tbAMyGizZwrsj3pQJdwXd1GMf5oxmFHUo';
 var LOOKER_MANAGER_SOURCE_RANGE = "'Sales Roster Update.csv'!A:G";
 
-var PASSING_SCORE_PERCENT = 70;
+var PASSING_SCORE_PERCENT = 80;
 var DEFAULT_JOURNEY_NAME = 'High School Year Round Workshops - Jun';
 
 var COMPLETE_SIMULATION_ACTION = 'Ask representative to complete this simulation and schedule time via Assembled for representative to complete the simulation adhering to capacity constraints.';
@@ -20,8 +20,8 @@ var NO_FOLLOW_UP_ACTION = 'No follow-up required.';
 var REFLEXAI_PLATFORM_RESOURCE_URL = 'https://drive.google.com/file/d/18X5z6iRGRk-fKY4bAvIxswwys3ne2z3r/view';
 var REFLEXAI_LOGIN_URL = 'https://varsitytutors.reflexai.com/home';
 var EMAIL_SUBTITLE = 'Varsity Tutors Quality Assurance Pillar';
-var COMPLETED_CLEARED_LABEL = 'Completed & Cleared 70% Threshold';
-var COMPLETED_NOT_CLEARED_LABEL = 'Completed & Not Cleared 70% Threshold';
+var COMPLETED_CLEARED_LABEL = 'Completed & Cleared 80% Threshold';
+var COMPLETED_NOT_CLEARED_LABEL = 'Completed & Not Cleared 80% Threshold';
 var NOT_STARTED_LABEL = 'Not Started';
 var COMPLETED_CLEARED_COLOR = '#4f8cff';
 var COMPLETED_NOT_CLEARED_COLOR = '#ffcc33';
