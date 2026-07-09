@@ -139,7 +139,7 @@ var EXCEPTION_HEADERS = [
 function onOpen() {
   var ui = SpreadsheetApp.getUi();
 
-  ui.createMenu('ReflexAI Reporting')
+  ui.createMenu('ReflexAI Emails')
     .addItem('Set Up Sheets', 'createSetupSheets')
     .addItem('Connect Looker Report', 'connectLookerManagerImport')
     .addItem('Set Current Journey Name', 'setCurrentJourneyName')
@@ -152,7 +152,7 @@ function onOpen() {
     .addItem('Send Director Email', 'sendDirectorEmail')
     .addToUi();
 
-  ui.createMenu('Reflex-AI Training')
+  ui.createMenu('ReflexAI Scheduling')
     .addSubMenu(
       ui.createMenu('Send It')
         .addItem('Send', 'sendItSend')
