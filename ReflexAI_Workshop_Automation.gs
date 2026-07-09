@@ -163,6 +163,7 @@ function onOpen() {
     .addItem('Repair TS Config sheet', 'repairTsConfigSheet')
     .addItem('Repair Escalation Links', 'repairEscalationLinks')
     .addItem('Resend Active Offers with Repaired Links', 'resendActiveOffersWithCurrentLinks')
+    .addItem('Expire Old Pending Offers', 'expireOldPendingOffers')
     .addItem('Refresh manager list from Looker', 'refreshManagerAliasRows')
     .addItem('Send test offer (Syla Doronina)', 'sendTestOfferSylaDoronina')
     .addItem('Resend Syla Slack (existing offer)', 'resendTestOfferSlackSylaDoronina')
