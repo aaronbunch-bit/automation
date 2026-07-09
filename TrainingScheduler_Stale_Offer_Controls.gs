@@ -37,6 +37,10 @@ function expireOldPendingOffers() {
   }
 
   var values = offerSheet.getDataRange().getValues();
+  var scanned = 0;
+  var eligibleStatus = 0;
+  var beforeCutoff = 0;
+  var unparsableCreatedAt = 0;
   var staleOffers = 0;
   var staleTokens = 0;
 
@@ -45,14 +49,23 @@ function expireOldPendingOffers() {
     var rowNum = i + 1;
     var status = String(row[TS.OFFER_COLS.STATUS - 1] || '').trim().toUpperCase();
     var createdAt = row[TS.OFFER_COLS.CREATED_AT - 1];
+    scanned++;
 
     if (!tsIsOfferStatusStaleEligible_(status)) {
       continue;
     }
+    eligibleStatus++;
 
-    if (!tsDateIsBeforeCutoff_(createdAt, cutoff)) {
+    var parsedCreatedAt = tsParseOfferDateValue_(createdAt);
+    if (!parsedCreatedAt) {
+      unparsableCreatedAt++;
       continue;
     }
+
+    if (!tsDateIsBeforeCutoff_(parsedCreatedAt, cutoff)) {
+      continue;
+    }
+    beforeCutoff++;
 
     offerSheet.getRange(rowNum, TS.OFFER_COLS.STATUS).setValue('STALE');
     staleOffers++;
@@ -79,8 +92,12 @@ function expireOldPendingOffers() {
     'EXPIRE_OLD_OFFERS',
     '',
     'Cutoff=' + Utilities.formatDate(cutoff, TS.TZ, 'yyyy-MM-dd') +
+      '; scanned=' + scanned +
+      '; eligibleStatus=' + eligibleStatus +
+      '; beforeCutoff=' + beforeCutoff +
       '; staleOffers=' + staleOffers +
-      '; staleTokens=' + staleTokens,
+      '; staleTokens=' + staleTokens +
+      '; unparsableCreatedAt=' + unparsableCreatedAt,
     'OK'
   );
 
@@ -88,8 +105,12 @@ function expireOldPendingOffers() {
     'Expire Old Pending Offers',
     'Old pending/offered offers expired.\n\n' +
       'Cutoff date: ' + Utilities.formatDate(cutoff, TS.TZ, 'yyyy-MM-dd') + '\n' +
+      'Rows scanned: ' + scanned + '\n' +
+      'Pending/offered rows found: ' + eligibleStatus + '\n' +
+      'Pending/offered rows before cutoff: ' + beforeCutoff + '\n' +
       'Offers marked STALE: ' + staleOffers + '\n' +
       'Tokens marked STALE: ' + staleTokens + '\n\n' +
+      (unparsableCreatedAt ? 'Rows with unreadable Created At: ' + unparsableCreatedAt + '\n\n' : '') +
       'Run offers again to create new offers for current sims.',
     SpreadsheetApp.getUi().ButtonSet.OK
   );
@@ -166,24 +187,46 @@ function tsHasActivePendingOffer_(email, salesGroup) {
 }
 
 function tsGetOfferIgnoreBeforeDate_() {
-  var raw = '';
-
-  try {
-    raw = String(tsLoadConfig_().OFFER_IGNORE_BEFORE_DATE || '').trim();
-  } catch (ignore) {}
+  var raw = tsReadOfferIgnoreBeforeDateFromConfigSheet_();
 
   if (!raw) {
-    raw = String(PropertiesService.getScriptProperties().getProperty('OFFER_IGNORE_BEFORE_DATE') || '').trim();
+    try {
+      raw = PropertiesService.getScriptProperties().getProperty('OFFER_IGNORE_BEFORE_DATE');
+    } catch (ignore) {}
   }
 
   if (!raw) return null;
 
-  var parsed = Utilities.parseDate(raw.substring(0, 10) + 'T00:00:00', TS.TZ, "yyyy-MM-dd'T'HH:mm:ss");
+  var parsed = tsParseOfferDateValue_(raw);
   if (!parsed || isNaN(parsed.getTime())) {
     throw new Error('Invalid OFFER_IGNORE_BEFORE_DATE. Use yyyy-mm-dd, for example 2026-07-01.');
   }
 
+  parsed.setHours(0, 0, 0, 0);
   return parsed;
+}
+
+function tsReadOfferIgnoreBeforeDateFromConfigSheet_() {
+  var sheet = tsGetSpreadsheet_().getSheetByName(TS.SHEETS.CONFIG);
+  if (!sheet || sheet.getLastRow() < 2) return '';
+
+  var values = sheet.getDataRange().getValues();
+  for (var i = 1; i < values.length; i++) {
+    var key = String(values[i][0] || '').trim().toUpperCase();
+    if (!key) continue;
+    if (key === 'MANAGER NAME') break;
+
+    if (
+      key === 'OFFER_IGNORE_BEFORE_DATE' ||
+      key === 'OFFER_IGNORE' ||
+      key === 'OFFER_IGNOR' ||
+      key.indexOf('OFFER_IGNORE_BEFORE') === 0
+    ) {
+      return values[i][1];
+    }
+  }
+
+  return '';
 }
 
 function tsDateIsBeforeCutoff_(value, cutoff) {
