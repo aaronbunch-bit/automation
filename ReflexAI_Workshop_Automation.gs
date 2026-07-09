@@ -140,21 +140,33 @@ function onOpen() {
   var ui = SpreadsheetApp.getUi();
 
   ui.createMenu('ReflexAI Emails')
-    .addItem('Set Up Sheets', 'createSetupSheets')
-    .addItem('Connect Looker Report', 'connectLookerManagerImport')
-    .addItem('Set Current Journey Name', 'setCurrentJourneyName')
-    .addItem('Run CSV Dump', 'runWeeklySimulationExceptionReport')
-    .addItem('Test Manager Email', 'sendTestManagerExceptionEmails')
-    .addItem('Test Senior Leader Email', 'sendTestSeniorLeadershipRecap')
-    .addItem('Test Director Email', 'sendTestDirectorEmail')
-    .addItem('Send Manager Email', 'sendManagerExceptionEmails')
-    .addItem('Send Senior Leader Email', 'sendSeniorLeadershipRecap')
-    .addItem('Send Director Email', 'sendDirectorEmail')
+    .addSubMenu(
+      ui.createMenu('Setup')
+        .addItem('Set Up Sheets', 'createSetupSheets')
+        .addItem('Connect Looker Report', 'connectLookerManagerImport')
+        .addItem('Set Current Journey Name', 'setCurrentJourneyName')
+    )
+    .addSubMenu(
+      ui.createMenu('Build Report')
+        .addItem('Run CSV Dump', 'runWeeklySimulationExceptionReport')
+    )
+    .addSubMenu(
+      ui.createMenu('Test Emails')
+        .addItem('Test Manager Email', 'sendTestManagerExceptionEmails')
+        .addItem('Test Senior Leader Email', 'sendTestSeniorLeadershipRecap')
+        .addItem('Test Director Email', 'sendTestDirectorEmail')
+    )
+    .addSubMenu(
+      ui.createMenu('Send Emails')
+        .addItem('Send Manager Email', 'sendManagerExceptionEmails')
+        .addItem('Send Senior Leader Email', 'sendSeniorLeadershipRecap')
+        .addItem('Send Director Email', 'sendDirectorEmail')
+    )
     .addToUi();
 
   ui.createMenu('ReflexAI Scheduling')
     .addSubMenu(
-      ui.createMenu('Send It')
+      ui.createMenu('Send Offers')
         .addItem('Send All Supergroups', 'sendItSendAllSupergroups')
         .addItem('Send Adult Learning', 'sendItSendAdultLearning')
         .addItem('Send College', 'sendItSendCollege')
@@ -163,22 +175,37 @@ function onOpen() {
         .addItem('Send Prof Certs', 'sendItSendProfCerts')
         .addItem('Reset Send Progress', 'resetSendItResumeBatch')
     )
-    .addSeparator()
-    .addItem('Update TS Analytics', 'refreshTsAnalytics')
-    .addItem('Setup workbook + triggers', 'setupTrainingScheduler')
-    .addItem('Repair TS Config sheet', 'repairTsConfigSheet')
-    .addItem('Setup Manager Coach Columns', 'setupManagerCoachColumns')
-    .addItem('Repair Escalation Links', 'repairEscalationLinks')
-    .addItem('Resend Active Offers with Repaired Links', 'resendActiveOffersWithCurrentLinks')
-    .addItem('Expire Old Pending Offers', 'expireOldPendingOffers')
-    .addItem('Nudge Managers + Coaches', 'nudgeManagersAndCoaches')
-    .addItem('Refresh manager list from Looker', 'refreshManagerAliasRows')
-    .addItem('Send test offer (Syla Doronina)', 'sendTestOfferSylaDoronina')
-    .addItem('Resend Syla Slack (existing offer)', 'resendTestOfferSlackSylaDoronina')
-    .addItem('Test Slack DM to me', 'sendTestSlackPingToMe')
-    .addItem('Run offers now', 'runTrainingOffersNow')
-    .addItem('Run reminders now', 'runTrainingRemindersNow')
-    .addItem('Dry-run (log only)', 'runTrainingOffersDryRun')
+    .addSubMenu(
+      ui.createMenu('Manager + Coach Nudges')
+        .addItem('Setup Manager Coach Columns', 'setupManagerCoachColumns')
+        .addItem('Test Nudge Managers + Coaches', 'testNudgeManagersAndCoaches')
+        .addItem('Nudge Managers + Coaches', 'nudgeManagersAndCoaches')
+    )
+    .addSubMenu(
+      ui.createMenu('Repairs')
+        .addItem('Repair TS Config Sheet', 'repairTsConfigSheet')
+        .addItem('Repair Escalation Links', 'repairEscalationLinks')
+        .addItem('Resend Active Offers with Repaired Links', 'resendActiveOffersWithCurrentLinks')
+        .addItem('Expire Old Pending Offers', 'expireOldPendingOffers')
+    )
+    .addSubMenu(
+      ui.createMenu('Testing')
+        .addItem('Send Test Offer (Syla Doronina)', 'sendTestOfferSylaDoronina')
+        .addItem('Resend Syla Slack', 'resendTestOfferSlackSylaDoronina')
+        .addItem('Test Slack DM to Me', 'sendTestSlackPingToMe')
+    )
+    .addSubMenu(
+      ui.createMenu('Analytics')
+        .addItem('Update TS Analytics', 'refreshTsAnalytics')
+        .addItem('Refresh Manager List from Looker', 'refreshManagerAliasRows')
+    )
+    .addSubMenu(
+      ui.createMenu('Admin')
+        .addItem('Setup Workbook + Triggers', 'setupTrainingScheduler')
+        .addItem('Run Offers Now', 'runTrainingOffersNow')
+        .addItem('Run Reminders Now', 'runTrainingRemindersNow')
+        .addItem('Dry-run', 'runTrainingOffersDryRun')
+    )
     .addToUi();
 }
 

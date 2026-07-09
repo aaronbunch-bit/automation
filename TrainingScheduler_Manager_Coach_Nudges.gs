@@ -32,7 +32,15 @@ function setupManagerCoachColumns() {
   );
 }
 
+function testNudgeManagersAndCoaches() {
+  nudgeManagersAndCoaches_(true);
+}
+
 function nudgeManagersAndCoaches() {
+  nudgeManagersAndCoaches_(false);
+}
+
+function nudgeManagersAndCoaches_(testMode) {
   var ss = tsGetSpreadsheet_();
   var offersSheet = ss.getSheetByName(TS.SHEETS.OFFERS);
   if (!offersSheet || offersSheet.getLastRow() <= 1) {
@@ -78,11 +86,16 @@ function nudgeManagersAndCoaches() {
     }
 
     var message = tsBuildManagerCoachNudgeMessage_(managerName, route.coachName || '', offers);
-    var ok = tsSendManagerCoachGroupDm_(managerAlias, coachAlias, message);
+    if (testMode) {
+      message = '*[TEST MODE — would have gone to manager alias `' + managerAlias + '` and coach alias `' + coachAlias + '`]*\n\n' + message;
+    }
+    var ok = testMode
+      ? tsSlackDmTestRecipient_(message)
+      : tsSendManagerCoachGroupDm_(managerAlias, coachAlias, message);
 
     if (ok) {
       sent++;
-      tsAudit_('MANAGER_COACH_NUDGE', managerName, 'Sent nudge for ' + offers.length + ' active offer(s)', 'OK');
+      tsAudit_('MANAGER_COACH_NUDGE', managerName, (testMode ? 'Test sent' : 'Sent') + ' nudge for ' + offers.length + ' active offer(s)', 'OK');
     } else {
       skippedNoSlack++;
       tsAudit_('MANAGER_COACH_NUDGE', managerName, 'Failed Slack group DM', 'WARN');
@@ -90,7 +103,7 @@ function nudgeManagersAndCoaches() {
   });
 
   SpreadsheetApp.getUi().alert(
-    'Manager + Coach nudges complete.\n\n' +
+    (testMode ? 'Test manager + coach nudges complete.\n\n' : 'Manager + Coach nudges complete.\n\n') +
     'Messages sent: ' + sent + '\n' +
     'Skipped missing coach alias: ' + skippedNoCoach + '\n' +
     'Skipped Slack failures: ' + skippedNoSlack
