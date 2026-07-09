@@ -188,10 +188,44 @@ function tsGetOfferIgnoreBeforeDate_() {
 
 function tsDateIsBeforeCutoff_(value, cutoff) {
   if (!cutoff) return false;
-  if (!(value instanceof Date) || isNaN(value.getTime())) return false;
-  return value.getTime() < cutoff.getTime();
+  var parsed = tsParseOfferDateValue_(value);
+  if (!parsed) return false;
+  return parsed.getTime() < cutoff.getTime();
 }
 
 function tsIsOfferStatusStaleEligible_(status) {
   return ['PENDING', 'OFFERED'].indexOf(String(status || '').trim().toUpperCase()) !== -1;
+}
+
+function tsParseOfferDateValue_(value) {
+  if (value instanceof Date && !isNaN(value.getTime())) {
+    return value;
+  }
+
+  if (typeof value === 'number' && isFinite(value)) {
+    // Google Sheets serial date number.
+    return new Date(Math.round((value - 25569) * 86400 * 1000));
+  }
+
+  var raw = String(value || '').trim();
+  if (!raw) return null;
+
+  var direct = new Date(raw);
+  if (!isNaN(direct.getTime())) {
+    return direct;
+  }
+
+  var match = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})(?:\s+(\d{1,2}):(\d{2})(?::(\d{2}))?)?/);
+  if (match) {
+    var month = Number(match[1]);
+    var day = Number(match[2]);
+    var year = Number(match[3]);
+    var hour = Number(match[4] || 0);
+    var minute = Number(match[5] || 0);
+    var second = Number(match[6] || 0);
+    var parsed = new Date(year, month - 1, day, hour, minute, second);
+    return isNaN(parsed.getTime()) ? null : parsed;
+  }
+
+  return null;
 }
