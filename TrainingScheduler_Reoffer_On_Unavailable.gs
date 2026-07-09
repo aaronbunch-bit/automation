@@ -90,6 +90,7 @@ function tsExecuteReofferToken_(bookingToken) {
 
     if (!result.windows.length) {
       tsAudit_('REOFFER', consultantEmail, 'No replacement windows found — ' + result.diag, 'WARN');
+      tsNotifyManagerNoReofferCapacity_(managerName, consultantName, consultantEmail, durationMin, simsCsv);
       return {
         ok: false,
         message: 'No replacement training windows are currently available. Please contact your manager or WFM.'
@@ -182,4 +183,26 @@ function tsSupersedeOldOfferForReoffer_(offerRow) {
       tsUpdateBookingTokenStatus_(hit.rowNum, 'SUPERSEDED');
     }
   });
+}
+
+function tsNotifyManagerNoReofferCapacity_(managerName, consultantName, consultantEmail, durationMin, simsCsv) {
+  if (!managerName) {
+    tsAudit_('REOFFER_MANAGER_NOTIFY', consultantEmail, 'No manager available for no-capacity reoffer notice', 'WARN');
+    return;
+  }
+
+  var message = [
+    '*Reflex-AI training scheduling support needed*',
+    '',
+    'Capacity constraints do not allow *' + (consultantName || consultantEmail) + '* to be automatically scheduled.',
+    'Please manually schedule a *' + durationMin + '-minute* time block for them to complete their simulations in Assembled.',
+    simsCsv ? 'Sims: ' + simsCsv : ''
+  ].filter(Boolean).join('\n');
+
+  try {
+    tsSlackDmManager_(managerName, message);
+    tsAudit_('REOFFER_MANAGER_NOTIFY', consultantEmail, 'No-capacity manager DM sent to ' + managerName, 'OK');
+  } catch (err) {
+    tsAudit_('REOFFER_MANAGER_NOTIFY', consultantEmail, 'No-capacity manager DM failed: ' + err, 'WARN');
+  }
 }
