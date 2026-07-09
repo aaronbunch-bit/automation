@@ -142,7 +142,7 @@ function tsExecuteReofferToken_(bookingToken) {
 
     return {
       ok: true,
-      message: 'New training options were sent in Slack. Please choose a new Book It time there.'
+      message: 'The option you chose is no longer available. New options were just sent to you in Slack. Please reassess the updated time blocks and select a new offer.'
     };
   } catch (err) {
     tsAudit_('REOFFER', String(bookingToken || ''), String(err), 'FAILED');
