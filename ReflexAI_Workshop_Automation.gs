@@ -155,7 +155,8 @@ function onOpen() {
   ui.createMenu('ReflexAI Scheduling')
     .addSubMenu(
       ui.createMenu('Send It')
-        .addItem('Send', 'sendItSend')
+        .addItem('Send', 'sendItSendResumable')
+        .addItem('Reset Send Progress', 'resetSendItResumeBatch')
     )
     .addSeparator()
     .addItem('Update TS Analytics', 'refreshTsAnalytics')
