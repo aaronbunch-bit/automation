@@ -137,8 +137,9 @@ var EXCEPTION_HEADERS = [
 ];
 
 function onOpen() {
-  SpreadsheetApp.getUi()
-    .createMenu('ReflexAI Reporting')
+  var ui = SpreadsheetApp.getUi();
+
+  ui.createMenu('ReflexAI Reporting')
     .addItem('Set Up Sheets', 'createSetupSheets')
     .addItem('Connect Looker Report', 'connectLookerManagerImport')
     .addItem('Set Current Journey Name', 'setCurrentJourneyName')
@@ -149,6 +150,26 @@ function onOpen() {
     .addItem('Send Manager Email', 'sendManagerExceptionEmails')
     .addItem('Send Senior Leader Email', 'sendSeniorLeadershipRecap')
     .addItem('Send Director Email', 'sendDirectorEmail')
+    .addToUi();
+
+  ui.createMenu('Reflex-AI Training')
+    .addSubMenu(
+      ui.createMenu('Send It')
+        .addItem('Send', 'sendItSend')
+    )
+    .addSeparator()
+    .addItem('Update TS Analytics', 'refreshTsAnalytics')
+    .addItem('Setup workbook + triggers', 'setupTrainingScheduler')
+    .addItem('Repair TS Config sheet', 'repairTsConfigSheet')
+    .addItem('Repair Escalation Links', 'repairEscalationLinks')
+    .addItem('Resend Active Offers with Repaired Links', 'resendActiveOffersWithCurrentLinks')
+    .addItem('Refresh manager list from Looker', 'refreshManagerAliasRows')
+    .addItem('Send test offer (Syla Doronina)', 'sendTestOfferSylaDoronina')
+    .addItem('Resend Syla Slack (existing offer)', 'resendTestOfferSlackSylaDoronina')
+    .addItem('Test Slack DM to me', 'sendTestSlackPingToMe')
+    .addItem('Run offers now', 'runTrainingOffersNow')
+    .addItem('Run reminders now', 'runTrainingRemindersNow')
+    .addItem('Dry-run (log only)', 'runTrainingOffersDryRun')
     .addToUi();
 }
 
