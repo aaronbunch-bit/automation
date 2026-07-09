@@ -5,6 +5,7 @@
  * - Prevent old pending/offered rows from prior months from blocking new sims.
  * - Add a cutoff date setting: OFFER_IGNORE_BEFORE_DATE, for example 2026-07-01.
  * - Add a menu-callable cleanup function: expireOldPendingOffers.
+ * - Maintain the original offer Status while marking old rows Inactive.
  *
  * IMPORTANT:
  * This file includes a replacement tsHasActivePendingOffer_ function. In Apps
@@ -36,13 +37,15 @@ function expireOldPendingOffers() {
     return;
   }
 
-  var values = offerSheet.getDataRange().getValues();
+  var activeColumn = tsEnsureOfferActiveColumn_(offerSheet);
+  var values = offerSheet.getRange(1, 1, offerSheet.getLastRow(), Math.max(offerSheet.getLastColumn(), activeColumn)).getValues();
   var scanned = 0;
-  var eligibleStatus = 0;
+  var beforeCutoff = 0;
+  var activatedRows = 0;
+  var inactivatedRows = 0;
+  var pendingTokensStaled = 0;
   var beforeCutoff = 0;
   var unparsableCreatedAt = 0;
-  var staleOffers = 0;
-  var staleTokens = 0;
 
   for (var i = 1; i < values.length; i++) {
     var row = values[i];
@@ -51,11 +54,6 @@ function expireOldPendingOffers() {
     var createdAt = row[TS.OFFER_COLS.CREATED_AT - 1];
     scanned++;
 
-    if (!tsIsOfferStatusStaleEligible_(status)) {
-      continue;
-    }
-    eligibleStatus++;
-
     var parsedCreatedAt = tsParseOfferDateValue_(createdAt);
     if (!parsedCreatedAt) {
       unparsableCreatedAt++;
@@ -63,13 +61,21 @@ function expireOldPendingOffers() {
     }
 
     if (!tsDateIsBeforeCutoff_(parsedCreatedAt, cutoff)) {
+      if (String(row[activeColumn - 1] || '').trim() !== 'Active') {
+        offerSheet.getRange(rowNum, activeColumn).setValue('Active');
+        activatedRows++;
+      }
       continue;
     }
     beforeCutoff++;
 
-    offerSheet.getRange(rowNum, TS.OFFER_COLS.STATUS).setValue('STALE');
-    staleOffers++;
+    if (String(row[activeColumn - 1] || '').trim() !== 'Inactive') {
+      offerSheet.getRange(rowNum, activeColumn).setValue('Inactive');
+      inactivatedRows++;
+    }
 
+    // Keep the original offer Status intact for audit/history, but disable old
+    // pending booking tokens so stale links cannot still be booked.
     var tokenIds = String(row[TS.OFFER_COLS.TOKEN_IDS - 1] || '')
       .split(',')
       .map(function(value) { return value.trim(); })
@@ -83,7 +89,7 @@ function expireOldPendingOffers() {
       if (tokenStatus !== 'PENDING') return;
 
       tsUpdateBookingTokenStatus_(hit.rowNum, 'STALE');
-      staleTokens++;
+      pendingTokensStaled++;
     });
   }
 
@@ -93,10 +99,10 @@ function expireOldPendingOffers() {
     '',
     'Cutoff=' + Utilities.formatDate(cutoff, TS.TZ, 'yyyy-MM-dd') +
       '; scanned=' + scanned +
-      '; eligibleStatus=' + eligibleStatus +
       '; beforeCutoff=' + beforeCutoff +
-      '; staleOffers=' + staleOffers +
-      '; staleTokens=' + staleTokens +
+      '; inactivatedRows=' + inactivatedRows +
+      '; activatedRows=' + activatedRows +
+      '; pendingTokensStaled=' + pendingTokensStaled +
       '; unparsableCreatedAt=' + unparsableCreatedAt,
     'OK'
   );
@@ -106,10 +112,9 @@ function expireOldPendingOffers() {
     'Old pending/offered offers expired.\n\n' +
       'Cutoff date: ' + Utilities.formatDate(cutoff, TS.TZ, 'yyyy-MM-dd') + '\n' +
       'Rows scanned: ' + scanned + '\n' +
-      'Pending/offered rows found: ' + eligibleStatus + '\n' +
-      'Pending/offered rows before cutoff: ' + beforeCutoff + '\n' +
-      'Offers marked STALE: ' + staleOffers + '\n' +
-      'Tokens marked STALE: ' + staleTokens + '\n\n' +
+      'Rows before cutoff marked Inactive: ' + inactivatedRows + '\n' +
+      'Rows on/after cutoff marked Active: ' + activatedRows + '\n' +
+      'Old pending tokens marked STALE: ' + pendingTokensStaled + '\n\n' +
       (unparsableCreatedAt ? 'Rows with unreadable Created At: ' + unparsableCreatedAt + '\n\n' : '') +
       'Run offers again to create new offers for current sims.',
     SpreadsheetApp.getUi().ButtonSet.OK
@@ -127,19 +132,20 @@ function expireoldpendingoffers() {
  * - Any active pending offer/token could block new offers.
  *
  * New behavior:
- * - BOOKED and ESCALATED still block.
- * - STALE/CANCELLED/EXPIRED/SUPERSEDED do not block.
- * - OFFERED/PENDING rows before OFFER_IGNORE_BEFORE_DATE do not block.
+ * - Active BOOKED and ESCALATED rows still block.
+ * - Inactive rows do not block, regardless of original Status.
+ * - STALE/CANCELLED/EXPIRED/SUPERSEDED rows do not block.
+ * - Rows before OFFER_IGNORE_BEFORE_DATE do not block.
  * - Still-valid pending tokens after the cutoff do block.
  */
 function tsHasActivePendingOffer_(email, salesGroup) {
   var sheet = tsGetSpreadsheet_().getSheetByName(TS.SHEETS.OFFERS);
   if (!sheet || sheet.getLastRow() <= 1) return false;
 
+  var activeColumn = tsGetOfferActiveColumn_(sheet);
   var targetEmail = String(email || '').trim().toLowerCase();
   var targetGroup = String(salesGroup || '').trim().toLowerCase();
   var cutoff = tsGetOfferIgnoreBeforeDate_();
-  var now = new Date().getTime();
   var values = sheet.getDataRange().getValues();
 
   for (var i = 1; i < values.length; i++) {
@@ -150,10 +156,11 @@ function tsHasActivePendingOffer_(email, salesGroup) {
     var createdAt = row[TS.OFFER_COLS.CREATED_AT - 1];
 
     if (rowEmail !== targetEmail || rowGroup !== targetGroup) continue;
+    if (activeColumn && tsOfferRowIsInactive_(row, activeColumn)) continue;
+    if (cutoff && tsDateIsBeforeCutoff_(createdAt, cutoff)) continue;
 
     if (status === 'BOOKED' || status === 'ESCALATED') return true;
     if (status === 'STALE' || status === 'CANCELLED' || status === 'EXPIRED' || status === 'SUPERSEDED') continue;
-    if (cutoff && tsDateIsBeforeCutoff_(createdAt, cutoff)) continue;
     if (status !== 'OFFERED' && status !== 'PENDING') continue;
 
     var tokenIds = String(row[TS.OFFER_COLS.TOKEN_IDS - 1] || '')
@@ -172,10 +179,6 @@ function tsHasActivePendingOffer_(email, salesGroup) {
 
       var tokenCreated = hit.row[TS.BOOK_COLS.CREATED_AT - 1];
       if (cutoff && tsDateIsBeforeCutoff_(tokenCreated, cutoff)) return false;
-
-      if (tokenCreated instanceof Date && !isNaN(tokenCreated.getTime())) {
-        return now - tokenCreated.getTime() < TS.BOOKING_TOKEN_TTL_MS;
-      }
 
       return true;
     });
@@ -238,6 +241,31 @@ function tsDateIsBeforeCutoff_(value, cutoff) {
 
 function tsIsOfferStatusStaleEligible_(status) {
   return ['PENDING', 'OFFERED'].indexOf(String(status || '').trim().toUpperCase()) !== -1;
+}
+
+function tsEnsureOfferActiveColumn_(sheet) {
+  var existingColumn = tsGetOfferActiveColumn_(sheet);
+  if (existingColumn) return existingColumn;
+
+  var newColumn = sheet.getLastColumn() + 1;
+  sheet.getRange(1, newColumn).setValue('Active or Inactive');
+  sheet.getRange(1, newColumn).setFontWeight('bold').setBackground('#1F4E78').setFontColor('#ffffff');
+  return newColumn;
+}
+
+function tsGetOfferActiveColumn_(sheet) {
+  var headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+  for (var i = 0; i < headers.length; i++) {
+    var header = String(headers[i] || '').trim().toLowerCase();
+    if (header === 'active or inactive' || header === 'active/inactive' || header === 'active') {
+      return i + 1;
+    }
+  }
+  return 0;
+}
+
+function tsOfferRowIsInactive_(row, activeColumn) {
+  return String(row[activeColumn - 1] || '').trim().toLowerCase() === 'inactive';
 }
 
 function tsParseOfferDateValue_(value) {
