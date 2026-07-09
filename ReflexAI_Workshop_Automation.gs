@@ -26,6 +26,9 @@ var NOT_STARTED_LABEL = 'Not Started';
 var COMPLETED_CLEARED_COLOR = '#4f8cff';
 var COMPLETED_NOT_CLEARED_COLOR = '#ffcc33';
 var NOT_STARTED_COLOR = '#ff3ec8';
+var TAKE_RATE_BOOKED_COLOR = '#4f8cff';
+var TAKE_RATE_ESCALATED_COLOR = '#ffcc33';
+var TAKE_RATE_OFFERED_COLOR = '#ff3ec8';
 
 var EMAIL_NAME_OVERRIDES = {
   'john wright ii': 'john.wright@varsitytutors.com',
@@ -473,6 +476,13 @@ function sendManagerEmailBatches_(testMode) {
       rows: batch.metricRows
     };
     var intendedCcRecipients = Object.keys(batch.ccEmails).join(',');
+    var takeRate = buildOfferTakeRateForManager_(spreadsheet, batch.managerName);
+    var inlineImages = {};
+    var takeRateChartCid = '';
+    if (takeRate.total) {
+      takeRateChartCid = 'takeRateChart';
+      inlineImages[takeRateChartCid] = buildTakeRatePieChartBlob_(takeRate, 'Manager Take Rate');
+    }
 
     var recipients = testMode
       ? TEST_EMAIL_RECIPIENTS.join(',')
@@ -484,13 +494,17 @@ function sendManagerEmailBatches_(testMode) {
       return;
     }
 
-    MailApp.sendEmail({
+    var emailOptions = {
       to: recipients,
       cc: ccRecipients,
       subject: (testMode ? '[TEST] ' : '') + getCurrentMonthName_() + ' ReflexAI Weekly Simulation Follow-Up',
       body: buildManagerEmailBody_(batch.managerName, batch.allRows, testMode, managerEmail, intendedCcRecipients),
-      htmlBody: buildManagerEmailHtml_(batch.managerName, batch.allRows, testMode, managerEmail, batch.metrics, intendedCcRecipients)
-    });
+      htmlBody: buildManagerEmailHtml_(batch.managerName, batch.allRows, testMode, managerEmail, batch.metrics, intendedCcRecipients, takeRate, takeRateChartCid)
+    };
+    if (takeRateChartCid) {
+      emailOptions.inlineImages = inlineImages;
+    }
+    MailApp.sendEmail(emailOptions);
 
     batchesSent++;
     rowsIncluded += batch.allRows.length;
@@ -578,13 +592,24 @@ function sendSeniorLeadershipRecaps_(testMode) {
     recap.supergroupName = config.supergroupName;
     var recipients = testMode ? TEST_EMAIL_RECIPIENTS : [config.email];
     var subject = (testMode ? '[TEST] ' : '') + getCurrentMonthName_() + ' ' + recap.supergroupName + ' ReflexAI Supergroup Recap';
+    var takeRate = buildOfferTakeRateForSupergroup_(spreadsheet, config.supergroupName);
+    var inlineImages = {};
+    var takeRateChartCid = '';
+    if (takeRate.total) {
+      takeRateChartCid = 'takeRateChart';
+      inlineImages[takeRateChartCid] = buildTakeRatePieChartBlob_(takeRate, config.supergroupName + ' Take Rate');
+    }
 
-    MailApp.sendEmail({
+    var emailOptions = {
       to: recipients.join(','),
       subject: subject,
       body: buildSeniorLeadershipRecapText_(recap, testMode, config),
-      htmlBody: buildSeniorLeadershipRecapHtml_(recap, testMode, config)
-    });
+      htmlBody: buildSeniorLeadershipRecapHtml_(recap, testMode, config, takeRate, takeRateChartCid)
+    };
+    if (takeRateChartCid) {
+      emailOptions.inlineImages = inlineImages;
+    }
+    MailApp.sendEmail(emailOptions);
 
     sentCount++;
   });
@@ -637,6 +662,170 @@ function getSeniorLeaderRecipients_(spreadsheet) {
   return recipients;
 }
 
+function buildOfferTakeRateForManager_(spreadsheet, managerName) {
+  return buildOfferTakeRate_(spreadsheet, function(row) {
+    return normalizePersonKey_(getValue_(row, 'Manager')) === normalizePersonKey_(managerName);
+  });
+}
+
+function buildOfferTakeRateForSupergroup_(spreadsheet, supergroupName) {
+  return buildOfferTakeRate_(spreadsheet, function(row) {
+    return normalizePersonKey_(getValue_(row, 'Sales Group')) === normalizePersonKey_(supergroupName);
+  });
+}
+
+function buildOfferTakeRateOverall_(spreadsheet) {
+  return buildOfferTakeRate_(spreadsheet, function() {
+    return true;
+  });
+}
+
+function buildOfferTakeRate_(spreadsheet, predicate) {
+  var rows = readSheetRows_(spreadsheet, 'TS Offers').filter(function(row) {
+    return !tsOfferRowInactiveForEmail_(row) && predicate(row);
+  });
+  var takeRate = {
+    booked: 0,
+    escalated: 0,
+    offered: 0,
+    total: 0,
+    offeredRows: []
+  };
+
+  rows.forEach(function(row) {
+    var status = String(getValue_(row, 'Status') || '').trim().toUpperCase();
+    if (status === 'BOOKED') {
+      takeRate.booked++;
+      takeRate.total++;
+    } else if (status === 'ESCALATED') {
+      takeRate.escalated++;
+      takeRate.total++;
+    } else if (status === 'OFFERED' || status === 'PENDING') {
+      takeRate.offered++;
+      takeRate.total++;
+      takeRate.offeredRows.push(row);
+    }
+  });
+
+  return takeRate;
+}
+
+function tsOfferRowInactiveForEmail_(row) {
+  var value = String(
+    getValue_(row, 'Active or Inactive') ||
+    getValue_(row, 'Active/Inactive') ||
+    getValue_(row, 'Active') ||
+    ''
+  ).trim().toLowerCase();
+  return value === 'inactive';
+}
+
+function buildTakeRatePieChartBlob_(takeRate, title) {
+  var data = Charts.newDataTable()
+    .addColumn(Charts.ColumnType.STRING, 'Status')
+    .addColumn(Charts.ColumnType.NUMBER, 'Count')
+    .addRow(['Booked', takeRate.booked])
+    .addRow(['Escalated', takeRate.escalated])
+    .addRow(['Offered', takeRate.offered])
+    .build();
+
+  return Charts.newPieChart()
+    .setDataTable(data)
+    .setTitle(title)
+    .setDimensions(420, 260)
+    .setColors([TAKE_RATE_BOOKED_COLOR, TAKE_RATE_ESCALATED_COLOR, TAKE_RATE_OFFERED_COLOR])
+    .build()
+    .getAs('image/png')
+    .setName('take-rate.png');
+}
+
+function buildTakeRateSectionHtml_(eyebrow, title, takeRate, chartCid, detailsHtml) {
+  if (!takeRate || !takeRate.total) {
+    return '';
+  }
+
+  var chartHtml = chartCid
+    ? '<div style="text-align:center;margin:8px 0 14px 0;"><img src="cid:' + chartCid + '" style="max-width:420px;width:100%;height:auto;border:0;"></div>'
+    : '';
+
+  return sectionCard_(
+    eyebrow,
+    title,
+    metricTiles_([
+      { label: 'Booked', value: formatCountPercent_(takeRate.booked, takeRate.booked / takeRate.total), color: TAKE_RATE_BOOKED_COLOR },
+      { label: 'Escalated', value: formatCountPercent_(takeRate.escalated, takeRate.escalated / takeRate.total), color: TAKE_RATE_ESCALATED_COLOR },
+      { label: 'Offered', value: formatCountPercent_(takeRate.offered, takeRate.offered / takeRate.total), color: TAKE_RATE_OFFERED_COLOR }
+    ]) +
+    chartHtml +
+    '<div style="font-size:13px;line-height:19px;color:#4d49a3;margin:10px 0 14px 0;"><strong>Offered</strong> means reps who have not actioned the Slack bot time block offerings.</div>' +
+    (detailsHtml || '')
+  );
+}
+
+function buildManagerOpenOfferDetailsHtml_(takeRate) {
+  if (!takeRate || !takeRate.offeredRows.length) {
+    return '';
+  }
+
+  var rows = takeRate.offeredRows.map(function(row) {
+    return '<tr>' +
+      '<td>' + escapeHtml_(getValue_(row, 'Consultant')) + '</td>' +
+      '<td>' + escapeHtml_(getValue_(row, 'Sales Group')) + '</td>' +
+      '<td>' + escapeHtml_(getValue_(row, 'Sims')) + '</td>' +
+      '</tr>';
+  }).join('');
+
+  return '<div style="font-size:13px;line-height:19px;color:#4d49a3;margin:0 0 10px 0;"><strong>Open offerings still needing action:</strong></div>' +
+    styledTable_(['Representative', 'Supergroup', 'Sims'], rows);
+}
+
+function buildSeniorOpenOfferDetailsHtml_(takeRate) {
+  if (!takeRate || !takeRate.offeredRows.length) {
+    return '';
+  }
+
+  var managerMap = {};
+  takeRate.offeredRows.forEach(function(row) {
+    var managerName = getValue_(row, 'Manager') || 'Unassigned';
+    if (!managerMap[managerName]) managerMap[managerName] = [];
+    managerMap[managerName].push(getValue_(row, 'Consultant'));
+  });
+
+  var rows = Object.keys(managerMap).sort().map(function(managerName) {
+    var reps = managerMap[managerName].filter(Boolean).sort();
+    return '<tr>' +
+      '<td>' + escapeHtml_(managerName) + '</td>' +
+      '<td>' + escapeHtml_(reps.join(', ')) + '</td>' +
+      '<td>' + reps.length + '</td>' +
+      '</tr>';
+  }).join('');
+
+  return '<div style="font-size:13px;line-height:19px;color:#4d49a3;margin:0 0 10px 0;"><strong>Open offerings by manager:</strong></div>' +
+    styledTable_(['Manager', 'Representatives', 'Count'], rows);
+}
+
+function buildDirectorOpenOfferDetailsHtml_(takeRate) {
+  if (!takeRate || !takeRate.offeredRows.length) {
+    return '';
+  }
+
+  var managerMap = {};
+  takeRate.offeredRows.forEach(function(row) {
+    var managerName = getValue_(row, 'Manager') || 'Unassigned';
+    managerMap[managerName] = (managerMap[managerName] || 0) + 1;
+  });
+
+  var rows = Object.keys(managerMap).sort().map(function(managerName) {
+    return '<tr>' +
+      '<td>' + escapeHtml_(managerName) + '</td>' +
+      '<td>' + managerMap[managerName] + '</td>' +
+      '</tr>';
+  }).join('');
+
+  return '<div style="font-size:13px;line-height:19px;color:#4d49a3;margin:0 0 10px 0;"><strong>Open offerings by manager:</strong></div>' +
+    styledTable_(['Manager', 'Reps Not Actioned'], rows);
+}
+
 function sendTestDirectorEmail() {
   sendDirectorEmail_(TEST_EMAIL_RECIPIENTS, true);
 }
@@ -658,13 +847,24 @@ function sendDirectorEmail_(recipients, testMode) {
   var managerRoster = buildLookerManagerRoster_(spreadsheet);
   var recap = buildDirectorRecap_(csvRows, managerRoster, runSettings);
   var subject = (testMode ? '[TEST] ' : '') + getCurrentMonthName_() + ' ' + recap.supergroupName + ' ReflexAI Director Recap';
+  var takeRate = buildOfferTakeRateOverall_(spreadsheet);
+  var inlineImages = {};
+  var takeRateChartCid = '';
+  if (takeRate.total) {
+    takeRateChartCid = 'takeRateChart';
+    inlineImages[takeRateChartCid] = buildTakeRatePieChartBlob_(takeRate, 'Director Take Rate');
+  }
 
-  MailApp.sendEmail({
+  var emailOptions = {
     to: recipients.join(','),
     subject: subject,
     body: buildDirectorEmailText_(recap, testMode),
-    htmlBody: buildDirectorEmailHtml_(recap, testMode)
-  });
+    htmlBody: buildDirectorEmailHtml_(recap, testMode, takeRate, takeRateChartCid)
+  };
+  if (takeRateChartCid) {
+    emailOptions.inlineImages = inlineImages;
+  }
+  MailApp.sendEmail(emailOptions);
 
   SpreadsheetApp.getUi().alert(
     'Director recap sent.\n\nRecipients: ' +
@@ -1076,11 +1276,18 @@ function accentColorForSection_(eyebrow, title) {
   return '#6a62d2';
 }
 
-function buildDirectorEmailHtml_(recap, testMode) {
+function buildDirectorEmailHtml_(recap, testMode, takeRate, takeRateChartCid) {
   var bodyHtml = testBanner_(testMode, 'Director recap preview.') +
     introCard_(
       'Hi Directors,',
       'Below is the ' + getCurrentMonthName_() + ' ReflexAI director recap thus far for ' + recap.supergroupName + '.'
+    ) +
+    buildTakeRateSectionHtml_(
+      'OFFER TAKE RATE',
+      'Current Offer Status',
+      takeRate,
+      takeRateChartCid,
+      buildDirectorOpenOfferDetailsHtml_(takeRate)
     ) +
     sectionCard_(
       'CONSUMER SALES SNAPSHOT',
@@ -1534,12 +1741,19 @@ function buildSeniorLeadershipRecapText_(recap, testMode, recipientConfig) {
   return lines.join('\n');
 }
 
-function buildSeniorLeadershipRecapHtml_(recap, testMode, recipientConfig) {
+function buildSeniorLeadershipRecapHtml_(recap, testMode, recipientConfig, takeRate, takeRateChartCid) {
   var intended = recipientConfig && recipientConfig.email ? 'This email would have gone to: ' + recipientConfig.email + '.' : '';
   var bodyHtml = testBanner_(testMode, 'Senior leadership recap preview. ' + intended) +
     introCard_(
       'Hi ' + ((recipientConfig && recipientConfig.leaderName) || 'Senior Leaders') + ',',
       'Below is the ' + getCurrentMonthName_() + ' ReflexAI recap thus far for ' + recap.supergroupName + '.'
+    ) +
+    buildTakeRateSectionHtml_(
+      'OFFER TAKE RATE',
+      'Current Offer Status',
+      takeRate,
+      takeRateChartCid,
+      buildSeniorOpenOfferDetailsHtml_(takeRate)
     ) +
     buildLeadershipCountsTable_(recap) +
     buildSimulationAverageTable_(recap.simulationAverages) +
@@ -2060,7 +2274,7 @@ function buildManagerEmailBody_(managerName, rows, testMode, intendedManagerEmai
   return lines.join('\n');
 }
 
-function buildManagerEmailHtml_(managerName, rows, testMode, intendedManagerEmail, managerMetrics, intendedCcRecipients) {
+function buildManagerEmailHtml_(managerName, rows, testMode, intendedManagerEmail, managerMetrics, intendedCcRecipients, takeRate, takeRateChartCid) {
   var sections = buildEmailSections_(rows);
   var metricsBucket = managerMetrics && managerMetrics.bucket;
   var averageRows = managerMetrics && managerMetrics.rows ? managerMetrics.rows : rows;
@@ -2090,6 +2304,13 @@ function buildManagerEmailHtml_(managerName, rows, testMode, intendedManagerEmai
       ]) +
       progressBar_(completedClearedCount, lowScoreCount, incompleteCount) +
       managerSimulationAveragesHtml_(averageRows)
+    ) +
+    buildTakeRateSectionHtml_(
+      'OFFER TAKE RATE',
+      'Current Offer Status',
+      takeRate,
+      takeRateChartCid,
+      buildManagerOpenOfferDetailsHtml_(takeRate)
     ) +
     buildHtmlSection_(COMPLETED_NOT_CLEARED_LABEL + ' - Priority', sections.lowScoreGroups, true) +
     buildHtmlSection_(NOT_STARTED_LABEL, sections.incompleteGroups, false) +
