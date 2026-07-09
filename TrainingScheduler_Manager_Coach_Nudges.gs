@@ -33,14 +33,14 @@ function setupManagerCoachColumns() {
 }
 
 function testNudgeManagersAndCoaches() {
-  nudgeManagersAndCoaches_(true);
+  nudgeManagersAndCoaches_(true, 'Aaron Bunch');
 }
 
 function nudgeManagersAndCoaches() {
-  nudgeManagersAndCoaches_(false);
+  nudgeManagersAndCoaches_(false, '');
 }
 
-function nudgeManagersAndCoaches_(testMode) {
+function nudgeManagersAndCoaches_(testMode, managerFilter) {
   var ss = tsGetSpreadsheet_();
   var offersSheet = ss.getSheetByName(TS.SHEETS.OFFERS);
   if (!offersSheet || offersSheet.getLastRow() <= 1) {
@@ -66,7 +66,10 @@ function nudgeManagersAndCoaches_(testMode) {
 
   var coachConfig = tsLoadManagerCoachConfig_(configSheet, sectionRow);
   var groups = tsBuildManagerNudgeGroups_(offersSheet);
-  var managerNames = Object.keys(groups).sort();
+  var normalizedManagerFilter = tsNormalizePersonName_(managerFilter || '');
+  var managerNames = Object.keys(groups).filter(function(managerName) {
+    return !normalizedManagerFilter || tsNormalizePersonName_(managerName) === normalizedManagerFilter;
+  }).sort();
   var sent = 0;
   var skippedNoCoach = 0;
   var skippedNoSlack = 0;
@@ -87,11 +90,9 @@ function nudgeManagersAndCoaches_(testMode) {
 
     var message = tsBuildManagerCoachNudgeMessage_(managerName, route.coachName || '', offers);
     if (testMode) {
-      message = '*[TEST MODE — would have gone to manager alias `' + managerAlias + '` and coach alias `' + coachAlias + '`]*\n\n' + message;
+      message = '*[TEST MODE — Aaron Bunch manager/coach nudge]*\n\n' + message;
     }
-    var ok = testMode
-      ? tsSlackDmTestRecipient_(message)
-      : tsSendManagerCoachGroupDm_(managerAlias, coachAlias, message);
+    var ok = tsSendManagerCoachGroupDm_(managerAlias, coachAlias, message);
 
     if (ok) {
       sent++;
@@ -103,7 +104,7 @@ function nudgeManagersAndCoaches_(testMode) {
   });
 
   SpreadsheetApp.getUi().alert(
-    (testMode ? 'Test manager + coach nudges complete.\n\n' : 'Manager + Coach nudges complete.\n\n') +
+    (testMode ? 'Test Aaron manager + coach nudge complete.\n\n' : 'Manager + Coach nudges complete.\n\n') +
     'Messages sent: ' + sent + '\n' +
     'Skipped missing coach alias: ' + skippedNoCoach + '\n' +
     'Skipped Slack failures: ' + skippedNoSlack
