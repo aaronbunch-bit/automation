@@ -111,6 +111,119 @@ function nudgeManagersAndCoaches_(testMode, managerFilter) {
   );
 }
 
+function sendManagerCoachNudgeForOfferRowOnce_(offerSheet, rowNum, row) {
+  var tracking = tsEnsureManagerCoachNudgeTrackingColumns_(offerSheet);
+  var sentAt = row[tracking.sentAtCol - 1];
+
+  if (sentAt instanceof Date && !isNaN(sentAt.getTime())) {
+    return false;
+  }
+
+  var configSheet = tsGetSpreadsheet_().getSheetByName(TS.SHEETS.CONFIG);
+  var sectionRow = configSheet ? tsFindManagerAliasSectionRow_(configSheet) : -1;
+  if (sectionRow < 0) {
+    offerSheet.getRange(rowNum, tracking.resultCol).setValue('Missing manager alias section');
+    return false;
+  }
+
+  tsEnsureManagerCoachConfigColumns_(configSheet, sectionRow);
+
+  var coachConfig = tsLoadManagerCoachConfig_(configSheet, sectionRow);
+  var managerName = String(row[TS.OFFER_COLS.MANAGER_NAME - 1] || '').trim();
+  var route = coachConfig[tsNormalizePersonName_(managerName)] || {};
+  var managerAlias = route.managerAlias || tsManagerNameToSlackAlias_(managerName);
+  var coachAlias = route.coachAlias || '';
+
+  if (!managerName || !coachAlias) {
+    offerSheet.getRange(rowNum, tracking.resultCol).setValue('Missing manager or coach alias');
+    return false;
+  }
+
+  var offer = {
+    consultantName: String(row[TS.OFFER_COLS.CONSULTANT_NAME - 1] || '').trim(),
+    consultantEmail: String(row[TS.OFFER_COLS.CONSULTANT_EMAIL - 1] || '').trim(),
+    salesGroup: String(row[TS.OFFER_COLS.SALES_GROUP - 1] || '').trim(),
+    simsCsv: String(row[TS.OFFER_COLS.SIMS_CSV - 1] || '').trim(),
+    durationMin: Number(row[TS.OFFER_COLS.DURATION_MIN - 1] || 0),
+    offerSentAt: row[TS.OFFER_COLS.OFFER_SENT_AT - 1],
+    createdAt: row[TS.OFFER_COLS.CREATED_AT - 1]
+  };
+
+  var message = tsBuildSingleOfferManagerCoachNudgeMessage_(
+    managerName,
+    route.coachName || '',
+    managerAlias,
+    coachAlias,
+    offer
+  );
+  var ok = tsSendManagerCoachSeparateDms_(managerAlias, coachAlias, message);
+
+  if (ok) {
+    offerSheet.getRange(rowNum, tracking.sentAtCol).setValue(new Date());
+    offerSheet.getRange(rowNum, tracking.resultCol).setValue('Sent');
+    tsAudit_('MANAGER_COACH_NUDGE', offer.consultantEmail, '48h nudge sent for ' + managerName, 'OK');
+    return true;
+  }
+
+  offerSheet.getRange(rowNum, tracking.resultCol).setValue('Slack send failed');
+  tsAudit_('MANAGER_COACH_NUDGE', offer.consultantEmail, '48h nudge failed for ' + managerName, 'WARN');
+  return false;
+}
+
+function tsEnsureManagerCoachNudgeTrackingColumns_(offerSheet) {
+  var sentAtCol = tsFindOrCreateOfferColumn_(offerSheet, 'Manager Coach Nudge Sent At');
+  var resultCol = tsFindOrCreateOfferColumn_(offerSheet, 'Manager Coach Nudge Result');
+
+  return {
+    sentAtCol: sentAtCol,
+    resultCol: resultCol
+  };
+}
+
+function tsFindOrCreateOfferColumn_(sheet, headerName) {
+  var headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+
+  for (var i = 0; i < headers.length; i++) {
+    if (String(headers[i] || '').trim() === headerName) {
+      return i + 1;
+    }
+  }
+
+  var col = sheet.getLastColumn() + 1;
+  sheet.getRange(1, col).setValue(headerName);
+  sheet.getRange(1, col).setFontWeight('bold').setBackground('#1F4E78').setFontColor('#ffffff');
+  return col;
+}
+
+function tsBuildSingleOfferManagerCoachNudgeMessage_(managerName, coachName, managerAlias, coachAlias, offer) {
+  var lines = [
+    '*Reflex-AI training follow-up needed*',
+    '',
+    'The following rep has not actioned their training offer after 48 hours:',
+    '',
+    '• *' + (offer.consultantName || offer.consultantEmail) + '* — ' +
+      (offer.salesGroup || 'Unknown group') +
+      (offer.durationMin ? ', ' + offer.durationMin + ' min' : '') +
+      (offer.simsCsv ? ' — Sims: ' + offer.simsCsv : ''),
+    '',
+    'Both parties have been notified: manager `' + managerAlias + '` and coach `' + coachAlias + '`.',
+    'Please coordinate to make sure this rep actions the most recent Ops Bot offer sent via DM.'
+  ];
+
+  return lines.join('\n');
+}
+
+/**
+ * Call this inside processTrainingReminders after the rep reminder sends.
+ *
+ * Example placement:
+ *   sheet.getRange(i + 1, TS.OFFER_COLS.REMINDER_SENT_AT).setValue(new Date());
+ *   sendManagerCoachNudgeForReminderRow_(sheet, i + 1, row);
+ */
+function sendManagerCoachNudgeForReminderRow_(offerSheet, rowNum, row) {
+  return sendManagerCoachNudgeForOfferRowOnce_(offerSheet, rowNum, row);
+}
+
 function tsEnsureManagerCoachConfigColumns_(sheet, sectionRow) {
   sheet.getRange(sectionRow, 1, 1, 5).setValues([[
     'Manager Name',
