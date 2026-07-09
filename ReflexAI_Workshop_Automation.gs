@@ -155,8 +155,8 @@ function onOpen() {
   ui.createMenu('ReflexAI Scheduling')
     .addSubMenu(
       ui.createMenu('Send It')
-        .addItem('Send Adult Learning', 'sendItSendAdultLearning')
         .addItem('Send All Supergroups', 'sendItSendAllSupergroups')
+        .addItem('Send Adult Learning', 'sendItSendAdultLearning')
         .addItem('Send College', 'sendItSendCollege')
         .addItem('Send ELD', 'sendItSendELD')
         .addItem('Send High School', 'sendItSendHighSchool')

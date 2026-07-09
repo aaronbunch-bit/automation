@@ -85,6 +85,7 @@ function sendItSendResumableForSalesGroup_(salesGroupFilter) {
   var processedThisRun = 0;
   var skippedAlreadyProcessed = 0;
   var total = needs.length;
+  var processingContext = tsCreateResumeProcessingContext_();
 
   tsSaveResumeBatchState_(startedAt, processed, normalizedSalesGroupFilter);
 
@@ -116,11 +117,7 @@ function sendItSendResumableForSalesGroup_(salesGroupFilter) {
       continue;
     }
 
-    processTrainingOffers({
-      force: true,
-      consultantFilter: need.email || need.name,
-      salesGroupFilter: normalizedSalesGroupFilter
-    });
+    tsProcessSingleTrainingNeedForResume_(need, processingContext);
 
     processed[key] = true;
     processedThisRun++;
@@ -200,4 +197,60 @@ function tsResumeNeedKey_(need) {
     String(need.email || '').trim().toLowerCase(),
     String(need.salesGroup || '').trim().toLowerCase()
   ].join('|');
+}
+
+function tsProcessSingleTrainingNeedForResume_(need, processingContext) {
+  if (tsConsultantAlreadyBooked_(need.email, need.salesGroup)) {
+    tsAudit_('SEND_IT_RESUME', tsResumeNeedKey_(need), 'Already booked — skip', 'INFO');
+    return;
+  }
+
+  if (tsHasActivePendingOffer_(need.email, need.salesGroup)) {
+    tsAudit_('SEND_IT_RESUME', tsResumeNeedKey_(need), 'Active pending offer/tokens — skip', 'INFO');
+    return;
+  }
+
+  try {
+    var headers = processingContext.headers;
+    var config = processingContext.config;
+    var siteId = processingContext.siteId;
+    var queueId = processingContext.queueIds[need.queue] || tsResolveQueueId_(headers, need.queue);
+
+    if (!queueId) {
+      tsAudit_('SEND_IT_RESUME', need.email, 'Queue not found: ' + need.queue, 'FAILED');
+      return;
+    }
+
+    processingContext.queueIds[need.queue] = queueId;
+
+    if (!processingContext.forecastCaches[need.queue]) {
+      processingContext.forecastCaches[need.queue] = tsBuildForecastCache_(headers, siteId, queueId, config);
+    }
+
+    var ctx = {
+      forecastCache: processingContext.forecastCaches[need.queue],
+      scheduleIdx: processingContext.scheduleIdx
+    };
+
+    tsProcessOneConsultantOffer_(need, headers, siteId, config, false, { force: true }, ctx);
+  } catch (err) {
+    tsAudit_('SEND_IT_RESUME', need.email || need.name || '', String(err), 'FAILED');
+  }
+}
+
+function tsCreateResumeProcessingContext_() {
+  var config = tsLoadConfig_();
+  var apiKey = tsGetApiKey_();
+  var headers = tsAuthHeaders_(apiKey);
+  var siteId = tsResolveSiteId_(headers, TS.ASSEMBLED.SITE_NAME);
+  var searchRange = tsComputeSearchRange_(config);
+
+  return {
+    config: config,
+    headers: headers,
+    siteId: siteId,
+    scheduleIdx: tsPullPhoneScheduleIndex_(headers, searchRange.start, searchRange.end),
+    queueIds: {},
+    forecastCaches: {}
+  };
 }
