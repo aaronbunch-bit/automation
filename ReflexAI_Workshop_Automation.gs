@@ -593,6 +593,7 @@ function sendSeniorLeadershipRecaps_(testMode) {
     var recipients = testMode ? TEST_EMAIL_RECIPIENTS : [config.email];
     var subject = (testMode ? '[TEST] ' : '') + getCurrentMonthName_() + ' ' + recap.supergroupName + ' ReflexAI Supergroup Recap';
     var takeRate = buildOfferTakeRateForSupergroup_(spreadsheet, config.supergroupName);
+    applyOpenOfferCountsToManagerRows_(recap.managerRows, takeRate);
     var inlineImages = {};
     var takeRateChartCid = '';
     if (takeRate.total) {
@@ -680,6 +681,28 @@ function buildOfferTakeRateOverall_(spreadsheet) {
   });
 }
 
+function applyOpenOfferCountsToManagerRows_(managerRows, takeRate) {
+  return applyOpenOfferCountsToMetricRows_(managerRows, takeRate, 'managerName');
+}
+
+function applyOpenOfferCountsToMetricRows_(rows, takeRate, nameProperty) {
+  var countsByManager = {};
+
+  if (takeRate && takeRate.offeredRows) {
+    takeRate.offeredRows.forEach(function(row) {
+      var managerName = getValue_(row, 'Manager') || 'Unassigned';
+      countsByManager[normalizePersonKey_(managerName)] = (countsByManager[normalizePersonKey_(managerName)] || 0) + 1;
+    });
+  }
+
+  (rows || []).forEach(function(row) {
+    var name = row[nameProperty] || row.name || '';
+    row.openOfferCount = countsByManager[normalizePersonKey_(name)] || 0;
+  });
+
+  return rows;
+}
+
 function buildOfferTakeRate_(spreadsheet, predicate) {
   var rows = readSheetRows_(spreadsheet, 'TS Offers').filter(function(row) {
     return !tsOfferRowInactiveForEmail_(row) && predicate(row);
@@ -752,12 +775,11 @@ function buildTakeRateSectionHtml_(eyebrow, title, takeRate, chartCid, detailsHt
     eyebrow,
     title,
     metricTiles_([
-      { label: 'Booked', value: formatCountPercent_(takeRate.booked, takeRate.booked / takeRate.total), color: TAKE_RATE_BOOKED_COLOR },
-      { label: 'Escalated', value: formatCountPercent_(takeRate.escalated, takeRate.escalated / takeRate.total), color: TAKE_RATE_ESCALATED_COLOR },
-      { label: 'Offered', value: formatCountPercent_(takeRate.offered, takeRate.offered / takeRate.total), color: TAKE_RATE_OFFERED_COLOR }
+      { label: 'Booked', subLabel: 'Selected time block via Ops Bot', value: formatCountPercent_(takeRate.booked, takeRate.booked / takeRate.total), color: TAKE_RATE_BOOKED_COLOR },
+      { label: 'Escalated', subLabel: 'Manager notified; manual scheduling required', value: formatCountPercent_(takeRate.escalated, takeRate.escalated / takeRate.total), color: TAKE_RATE_ESCALATED_COLOR },
+      { label: 'Offered', subLabel: 'Yet to action Ops Bot offerings', value: formatCountPercent_(takeRate.offered, takeRate.offered / takeRate.total), color: TAKE_RATE_OFFERED_COLOR }
     ]) +
     chartHtml +
-    '<div style="font-size:13px;line-height:19px;color:#4d49a3;margin:10px 0 14px 0;"><strong>Offered</strong> means reps who have not actioned the Slack bot time block offerings.</div>' +
     (detailsHtml || '')
   );
 }
@@ -770,13 +792,12 @@ function buildManagerOpenOfferDetailsHtml_(takeRate) {
   var rows = takeRate.offeredRows.map(function(row) {
     return '<tr>' +
       '<td>' + escapeHtml_(getValue_(row, 'Consultant')) + '</td>' +
-      '<td>' + escapeHtml_(getValue_(row, 'Sales Group')) + '</td>' +
-      '<td>' + escapeHtml_(getValue_(row, 'Sims')) + '</td>' +
+      '<td>' + escapeHtml_(formatOfferSentDate_(getValue_(row, 'Offer Sent At') || getValue_(row, 'Created At'))) + '</td>' +
       '</tr>';
   }).join('');
 
   return '<div style="font-size:13px;line-height:19px;color:#4d49a3;margin:0 0 10px 0;"><strong>Open offerings still needing action:</strong></div>' +
-    styledTable_(['Representative', 'Supergroup', 'Sims'], rows);
+    styledTable_(['Representative', 'Offer Sent'], rows);
 }
 
 function buildSeniorOpenOfferDetailsHtml_(takeRate) {
@@ -848,6 +869,7 @@ function sendDirectorEmail_(recipients, testMode) {
   var recap = buildDirectorRecap_(csvRows, managerRoster, runSettings);
   var subject = (testMode ? '[TEST] ' : '') + getCurrentMonthName_() + ' ' + recap.supergroupName + ' ReflexAI Director Recap';
   var takeRate = buildOfferTakeRateOverall_(spreadsheet);
+  applyOpenOfferCountsToMetricRows_(recap.managerRows, takeRate, 'managerName');
   var inlineImages = {};
   var takeRateChartCid = '';
   if (takeRate.total) {
@@ -1152,6 +1174,7 @@ function metricTiles_(tiles) {
         '<div style="border:1px solid ' + hexToRgba_(tile.color, 0.38) + ';border-radius:18px;padding:20px 14px;background:linear-gradient(180deg,#ffffff 0%,' + wash + ' 100%);text-align:center;box-shadow:0 14px 30px ' + glow + ';min-height:86px;">' +
           '<div style="font-size:36px;font-weight:900;color:' + tile.color + ';line-height:40px;text-align:center;letter-spacing:-0.5px;">' + escapeHtml_(String(tile.value)) + '</div>' +
           '<div style="font-size:15px;line-height:18px;color:#24205f;font-weight:900;margin-top:10px;letter-spacing:-0.15px;">' + escapeHtml_(shortMetricLabel_(tile.label)) + '</div>' +
+          (tile.subLabel ? '<div style="font-size:10px;line-height:13px;color:#6a62d2;font-weight:700;margin-top:5px;">' + escapeHtml_(tile.subLabel) + '</div>' : '') +
         '</div>' +
       '</td>';
     }).join('') +
@@ -1287,7 +1310,7 @@ function buildDirectorEmailHtml_(recap, testMode, takeRate, takeRateChartCid) {
       'Current Offer Status',
       takeRate,
       takeRateChartCid,
-      buildDirectorOpenOfferDetailsHtml_(takeRate)
+      ''
     ) +
     sectionCard_(
       'CONSUMER SALES SNAPSHOT',
@@ -1310,6 +1333,7 @@ function buildDirectorEmailHtml_(recap, testMode, takeRate, takeRateChartCid) {
 }
 
 function buildDirectorTable_(title, rows, firstColumnLabel) {
+  var includeOpenOffers = title === 'Manager Breakdown';
   var tableRows = rows.map(function(row) {
     var rowStyle = row.isCompanySummary ? ' style="background-color:#e7f7ec;font-weight:bold;"' : '';
 
@@ -1318,6 +1342,7 @@ function buildDirectorTable_(title, rows, firstColumnLabel) {
       '<td>' + escapeHtml_(formatCountPercent_(row.completedAbove, row.completedAbovePercent)) + '</td>' +
       '<td>' + escapeHtml_(formatCountPercent_(row.completedBelow, row.completedBelowPercent)) + '</td>' +
       '<td>' + escapeHtml_(formatCountPercent_(row.notStarted, row.notStartedPercent)) + '</td>' +
+      (includeOpenOffers ? '<td>' + (row.openOfferCount || 0) + '</td>' : '') +
       '<td>' + escapeHtml_(formatScore_(row.completedAverageScore)) + '</td>' +
       '<td>' + row.total + '</td>' +
       '</tr>';
@@ -1331,6 +1356,7 @@ function buildDirectorTable_(title, rows, firstColumnLabel) {
       COMPLETED_CLEARED_LABEL,
       COMPLETED_NOT_CLEARED_LABEL,
       NOT_STARTED_LABEL,
+      ...(includeOpenOffers ? ['Offered'] : []),
       'Average Completed Score',
       'Total'
     ], tableRows)
@@ -1753,7 +1779,7 @@ function buildSeniorLeadershipRecapHtml_(recap, testMode, recipientConfig, takeR
       'Current Offer Status',
       takeRate,
       takeRateChartCid,
-      buildSeniorOpenOfferDetailsHtml_(takeRate)
+      ''
     ) +
     buildLeadershipCountsTable_(recap) +
     buildSimulationAverageTable_(recap.simulationAverages) +
@@ -1802,6 +1828,7 @@ function buildManagerRecapTable_(managerRows) {
       '<td>' + escapeHtml_(formatPercent_(manager.completedAbove, manager.total)) + '</td>' +
       '<td>' + escapeHtml_(formatPercent_(manager.completedBelow, manager.total)) + '</td>' +
       '<td>' + escapeHtml_(formatPercent_(manager.notStarted, manager.total)) + '</td>' +
+      '<td>' + (manager.openOfferCount || 0) + '</td>' +
       '<td>' + manager.total + '</td>' +
       '</tr>';
   }).join('');
@@ -1814,6 +1841,7 @@ function buildManagerRecapTable_(managerRows) {
       '% ' + COMPLETED_CLEARED_LABEL,
       '% ' + COMPLETED_NOT_CLEARED_LABEL,
       '% ' + NOT_STARTED_LABEL,
+      'Offered',
       'Total Simulations'
     ], rows)
   );
@@ -2820,6 +2848,23 @@ function formatDecimalPercent_(value) {
 
 function formatCountPercent_(count, percent) {
   return count + ' (' + formatDecimalPercent_(percent) + ')';
+}
+
+function formatOfferSentDate_(value) {
+  if (value instanceof Date && !isNaN(value.getTime())) {
+    return Utilities.formatDate(value, Session.getScriptTimeZone(), 'M/d/yyyy');
+  }
+
+  var raw = String(value || '').trim();
+  if (!raw) return '';
+
+  var parsed = new Date(raw);
+  if (!isNaN(parsed.getTime())) {
+    return Utilities.formatDate(parsed, Session.getScriptTimeZone(), 'M/d/yyyy');
+  }
+
+  var match = raw.match(/^(\d{1,2}\/\d{1,2}\/\d{4})/);
+  return match ? match[1] : raw;
 }
 
 function emailFromName_(name) {
