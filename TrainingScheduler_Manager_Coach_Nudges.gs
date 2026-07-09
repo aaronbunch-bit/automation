@@ -88,11 +88,11 @@ function nudgeManagersAndCoaches_(testMode, managerFilter) {
       return;
     }
 
-    var message = tsBuildManagerCoachNudgeMessage_(managerName, route.coachName || '', offers);
+    var message = tsBuildManagerCoachNudgeMessage_(managerName, route.coachName || '', managerAlias, coachAlias, offers);
     if (testMode) {
       message = '*[TEST MODE — Aaron Bunch manager/coach nudge]*\n\n' + message;
     }
-    var ok = tsSendManagerCoachGroupDm_(managerAlias, coachAlias, message);
+    var ok = tsSendManagerCoachSeparateDms_(managerAlias, coachAlias, message);
 
     if (ok) {
       sent++;
@@ -189,7 +189,7 @@ function tsOfferRowInactiveByHeader_(headers, row) {
   return false;
 }
 
-function tsBuildManagerCoachNudgeMessage_(managerName, coachName, offers) {
+function tsBuildManagerCoachNudgeMessage_(managerName, coachName, managerAlias, coachAlias, offers) {
   var lines = [
     '*Reflex-AI training follow-up needed*',
     '',
@@ -208,12 +208,13 @@ function tsBuildManagerCoachNudgeMessage_(managerName, coachName, offers) {
   });
 
   lines.push('');
-  lines.push('Please coordinate to get these reps scheduled.');
+  lines.push('Both parties have been notified: manager `' + managerAlias + '` and coach `' + coachAlias + '`.');
+  lines.push('Please coordinate to make sure these reps action the most recent Ops Bot offer sent via DM.');
 
   return lines.join('\n');
 }
 
-function tsSendManagerCoachGroupDm_(managerAlias, coachAlias, message) {
+function tsSendManagerCoachSeparateDms_(managerAlias, coachAlias, message) {
   var managerUserId = tsSlackLookupUserId_(managerAlias);
   var coachUserId = tsSlackLookupUserId_(coachAlias);
 
@@ -221,48 +222,11 @@ function tsSendManagerCoachGroupDm_(managerAlias, coachAlias, message) {
     return false;
   }
 
-  var users = [managerUserId, coachUserId].filter(function(value, index, arr) {
-    return value && arr.indexOf(value) === index;
-  });
-
-  if (!users.length) return false;
-
-  if (users.length === 1) {
-    return tsSlackSendDm_(users[0], message);
+  if (managerUserId === coachUserId) {
+    return tsSlackSendDm_(managerUserId, message);
   }
 
-  return tsSlackSendMultiPersonDm_(users, message);
-}
-
-function tsSlackSendMultiPersonDm_(userIds, message) {
-  try {
-    var token = tsGetSlackToken_();
-    var openRes = UrlFetchApp.fetch('https://slack.com/api/conversations.open', {
-      method: 'post',
-      headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
-      payload: JSON.stringify({ users: userIds.join(',') }),
-      muteHttpExceptions: true
-    });
-    var openData = JSON.parse(openRes.getContentText());
-    if (!openData.ok) {
-      tsAudit_('SLACK', 'group_open', openData.error || 'conversations.open failed', 'WARN');
-      return false;
-    }
-    var channelId = openData.channel.id;
-    var postRes = UrlFetchApp.fetch('https://slack.com/api/chat.postMessage', {
-      method: 'post',
-      headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
-      payload: JSON.stringify({ channel: channelId, text: message, unfurl_links: false }),
-      muteHttpExceptions: true
-    });
-    var postData = JSON.parse(postRes.getContentText());
-    if (!postData.ok) {
-      tsAudit_('SLACK', 'group_post', postData.error || 'chat.postMessage failed', 'WARN');
-      return false;
-    }
-    return true;
-  } catch (err) {
-    tsAudit_('SLACK', 'group_dm', String(err), 'FAILED');
-    return false;
-  }
+  var managerOk = tsSlackSendDm_(managerUserId, message);
+  var coachOk = tsSlackSendDm_(coachUserId, message);
+  return managerOk && coachOk;
 }
