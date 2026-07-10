@@ -119,6 +119,11 @@ function sendManagerCoachNudgeForOfferRowOnce_(offerSheet, rowNum, row) {
     return false;
   }
 
+  if (!tsOfferRowIsLatestActionableForNudge_(offerSheet, row)) {
+    offerSheet.getRange(rowNum, tracking.resultCol).setValue('Skipped - latest offer status is not OFFERED/PENDING');
+    return false;
+  }
+
   var configSheet = tsGetSpreadsheet_().getSheetByName(TS.SHEETS.CONFIG);
   var sectionRow = configSheet ? tsFindManagerAliasSectionRow_(configSheet) : -1;
   if (sectionRow < 0) {
@@ -262,16 +267,17 @@ function tsLoadManagerCoachConfig_(sheet, sectionRow) {
 function tsBuildManagerNudgeGroups_(offersSheet) {
   var values = offersSheet.getDataRange().getValues();
   var groups = {};
+  var latestRows = tsLatestOfferRowsByRepGroup_(values);
 
-  for (var i = 1; i < values.length; i++) {
-    var row = values[i];
+  Object.keys(latestRows).sort().forEach(function(key) {
+    var row = latestRows[key];
     var status = String(row[TS.OFFER_COLS.STATUS - 1] || '').trim().toUpperCase();
 
-    if (!tsOfferStatusNeedsManagerCoachNudge_(status)) continue;
-    if (tsOfferRowInactiveByHeader_(values[0], row)) continue;
+    if (!tsOfferStatusNeedsManagerCoachNudge_(status)) return;
+    if (tsOfferRowInactiveByHeader_(values[0], row)) return;
 
     var managerName = String(row[TS.OFFER_COLS.MANAGER_NAME - 1] || '').trim();
-    if (!managerName) continue;
+    if (!managerName) return;
 
     if (!groups[managerName]) groups[managerName] = [];
     groups[managerName].push({
@@ -283,9 +289,63 @@ function tsBuildManagerNudgeGroups_(offersSheet) {
       offerSentAt: row[TS.OFFER_COLS.OFFER_SENT_AT - 1],
       createdAt: row[TS.OFFER_COLS.CREATED_AT - 1]
     });
-  }
+  });
 
   return groups;
+}
+
+function tsLatestOfferRowsByRepGroup_(values) {
+  var latest = {};
+  if (!values || values.length < 2) return latest;
+
+  for (var i = 1; i < values.length; i++) {
+    var row = values[i];
+    var key = tsOfferRepGroupKey_(row);
+    if (!key) continue;
+
+    if (!latest[key] || tsOfferRowSortTime_(row) >= tsOfferRowSortTime_(latest[key])) {
+      latest[key] = row;
+    }
+  }
+
+  return latest;
+}
+
+function tsOfferRowIsLatestActionableForNudge_(offersSheet, row) {
+  var values = offersSheet.getDataRange().getValues();
+  var latestRows = tsLatestOfferRowsByRepGroup_(values);
+  var key = tsOfferRepGroupKey_(row);
+  if (!key || !latestRows[key]) return false;
+
+  var latestRow = latestRows[key];
+  var status = String(latestRow[TS.OFFER_COLS.STATUS - 1] || '').trim().toUpperCase();
+
+  return latestRow === row &&
+    tsOfferStatusNeedsManagerCoachNudge_(status) &&
+    !tsOfferRowInactiveByHeader_(values[0], latestRow);
+}
+
+function tsOfferRepGroupKey_(row) {
+  var email = String(row[TS.OFFER_COLS.CONSULTANT_EMAIL - 1] || '').trim().toLowerCase();
+  var salesGroup = String(row[TS.OFFER_COLS.SALES_GROUP - 1] || '').trim().toLowerCase();
+  if (!email || !salesGroup) return '';
+  return email + '|' + salesGroup;
+}
+
+function tsOfferRowSortTime_(row) {
+  var bookedAt = tsNudgeParseDate_(row[TS.OFFER_COLS.BOOKED_AT - 1]);
+  var createdAt = tsNudgeParseDate_(row[TS.OFFER_COLS.CREATED_AT - 1]);
+  var offerSentAt = tsNudgeParseDate_(row[TS.OFFER_COLS.OFFER_SENT_AT - 1]);
+  var best = bookedAt || createdAt || offerSentAt;
+  return best ? best.getTime() : 0;
+}
+
+function tsNudgeParseDate_(value) {
+  if (value instanceof Date && !isNaN(value.getTime())) return value;
+  var raw = String(value || '').trim();
+  if (!raw) return null;
+  var parsed = new Date(raw);
+  return isNaN(parsed.getTime()) ? null : parsed;
 }
 
 function tsOfferStatusNeedsManagerCoachNudge_(status) {
