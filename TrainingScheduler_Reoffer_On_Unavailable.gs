@@ -2,8 +2,8 @@
  * Reoffer support for Book It links that fail because staffing changed.
  *
  * Adds support for:
- * - A "Send me more options" web page button.
- * - A ?reoffer=<booking_token> web-app action.
+ * - Automatic reoffer when a Book It slot fails because capacity changed.
+ * - A fallback ?reoffer=<booking_token> web-app action.
  * - Reusing the original booking token row to generate a fresh 3-slot offer.
  *
  * REQUIRED MAIN SCHEDULER EDITS:
@@ -27,12 +27,7 @@
  */
 
 function tsCapacityChangedReofferResult_(bookingToken) {
-  return {
-    ok: false,
-    message: 'Staffing changed — this slot is no longer available.\n\n' +
-      'Click this link to request three new training options:\n' +
-      tsBuildReofferUrl_(bookingToken)
-  };
+  return tsExecuteReofferToken_(bookingToken);
 }
 
 function tsBuildReofferUrl_(bookingToken) {
