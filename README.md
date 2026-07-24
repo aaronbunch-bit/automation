@@ -4,9 +4,11 @@ Internal automation for Varsity Tutors workflows.
 
 ## Slack — AutoNudge
 
-IT-provisioned Slack App package for Year-Round Workshop Scheduling messaging:
+Create the dedicated AutoNudge Slack App via Playwright (workspace create auto-requests IT/admin approval):
 
-- [`slack/README.md`](slack/README.md) — overview
-- [`slack/IT_PERMISSION_REQUEST.md`](slack/IT_PERMISSION_REQUEST.md) — submit this to IT
-- [`slack/autonudge.manifest.yaml`](slack/autonudge.manifest.yaml) — Slack App Manifest
-- [`slack/SETUP_CHECKLIST.md`](slack/SETUP_CHECKLIST.md) — post-install steps after IT returns the bot token
+```bash
+export VT_SSO_PASSWORD='...'   # Google Workspace password for aaron.bunch@varsitytutors.com
+npm install && npm run create-autonudge
+```
+
+Details: [`slack/README.md`](slack/README.md)
