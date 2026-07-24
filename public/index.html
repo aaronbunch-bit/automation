@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>pGC Coaching Bank</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Serif:wght@500;600&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --ink: #14201a;
+      --muted: #4d5c54;
+      --line: #c9d4cc;
+      --paper: #f3f6f2;
+      --panel: #ffffff;
+      --good: #1f6b45;
+      --good-bg: #d8f0e3;
+      --bad: #8a2f24;
+      --bad-bg: #f8e0dc;
+      --pending: #6b5a1f;
+      --pending-bg: #f3ebc8;
+      --accent: #0e6b6b;
+      --hero-grad: linear-gradient(145deg, #e8f2ec 0%, #d4e4dc 42%, #c5d8e8 100%);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "IBM Plex Sans", sans-serif;
+      color: var(--ink);
+      background: var(--paper);
+      min-height: 100vh;
+    }
+    header {
+      background: var(--hero-grad);
+      border-bottom: 1px solid var(--line);
+      padding: 2.25rem 1.5rem 1.75rem;
+    }
+    header .wrap { max-width: 1100px; margin: 0 auto; }
+    .brand {
+      font-family: "IBM Plex Serif", serif;
+      font-size: clamp(1.75rem, 3vw, 2.35rem);
+      font-weight: 600;
+      letter-spacing: -0.02em;
+      margin: 0 0 0.35rem;
+    }
+    .tag {
+      margin: 0;
+      color: var(--muted);
+      max-width: 40rem;
+      line-height: 1.45;
+    }
+    main {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 1.5rem;
+    }
+    .toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.75rem;
+      align-items: end;
+      margin-bottom: 1.25rem;
+    }
+    label {
+      display: flex;
+      flex-direction: column;
+      gap: 0.3rem;
+      font-size: 0.8rem;
+      font-weight: 500;
+      color: var(--muted);
+    }
+    input, select, button {
+      font: inherit;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 0.55rem 0.75rem;
+      background: var(--panel);
+      color: var(--ink);
+    }
+    button {
+      background: var(--accent);
+      color: #fff;
+      border-color: var(--accent);
+      font-weight: 600;
+      cursor: pointer;
+    }
+    button.secondary { background: var(--panel); color: var(--ink); }
+    button:disabled { opacity: 0.55; cursor: wait; }
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+      gap: 0.75rem;
+      margin-bottom: 1.5rem;
+    }
+    .stat {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 0.9rem 1rem;
+    }
+    .stat .k { font-size: 0.75rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+    .stat .v { font-family: "IBM Plex Serif", serif; font-size: 1.55rem; margin-top: 0.2rem; }
+    section h2 {
+      font-family: "IBM Plex Serif", serif;
+      font-size: 1.2rem;
+      margin: 0 0 0.75rem;
+    }
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      overflow: auto;
+      margin-bottom: 1.5rem;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.92rem;
+    }
+    th, td {
+      text-align: left;
+      padding: 0.7rem 0.85rem;
+      border-bottom: 1px solid var(--line);
+      white-space: nowrap;
+    }
+    th {
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--muted);
+      background: #eef3ef;
+    }
+    tr:last-child td { border-bottom: 0; }
+    .pill {
+      display: inline-block;
+      padding: 0.15rem 0.5rem;
+      border-radius: 4px;
+      font-size: 0.78rem;
+      font-weight: 600;
+    }
+    .pill.effective { background: var(--good-bg); color: var(--good); }
+    .pill.poor { background: var(--bad-bg); color: var(--bad); }
+    .pill.pending, .pill.insufficient_data { background: var(--pending-bg); color: var(--pending); }
+    .meta {
+      color: var(--muted);
+      font-size: 0.85rem;
+      margin-bottom: 1rem;
+    }
+    .error {
+      background: var(--bad-bg);
+      color: var(--bad);
+      padding: 0.85rem 1rem;
+      border-radius: 8px;
+      margin-bottom: 1rem;
+    }
+    @media (prefers-reduced-motion: no-preference) {
+      .stat, .panel { animation: rise 0.45s ease both; }
+      .stat:nth-child(2) { animation-delay: 0.05s; }
+      .stat:nth-child(3) { animation-delay: 0.1s; }
+      .stat:nth-child(4) { animation-delay: 0.15s; }
+      @keyframes rise {
+        from { opacity: 0; transform: translateY(6px); }
+        to { opacity: 1; transform: none; }
+      }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="wrap">
+      <p class="brand">pGC Coaching Bank</p>
+      <p class="tag">
+        Monitors coaching dates and scores effectivity from Looker pGC:
+        L7 (7 days before) → N7 (7 days after). An increase means effective coaching.
+      </p>
+    </div>
+  </header>
+  <main>
+    <div class="toolbar">
+      <label>Coach
+        <input id="coachFilter" placeholder="Filter coach" />
+      </label>
+      <label>Verdict
+        <select id="verdictFilter">
+          <option value="">All</option>
+          <option value="effective">Effective</option>
+          <option value="poor">Poor / neutral</option>
+          <option value="pending">Pending N7</option>
+          <option value="insufficient_data">Insufficient data</option>
+        </select>
+      </label>
+      <button id="refreshBtn" type="button">Refresh</button>
+      <button id="syncBtn" class="secondary" type="button">Run sync</button>
+    </div>
+    <p class="meta" id="meta">Loading…</p>
+    <div id="error" class="error" hidden></div>
+    <div class="stats" id="stats"></div>
+    <section>
+      <h2>Coach rollup</h2>
+      <div class="panel">
+        <table>
+          <thead>
+            <tr>
+              <th>Coach</th>
+              <th>Sessions</th>
+              <th>Effective</th>
+              <th>Poor</th>
+              <th>Effectivity</th>
+              <th>Avg Δ pGC</th>
+            </tr>
+          </thead>
+          <tbody id="coachBody"></tbody>
+        </table>
+      </div>
+    </section>
+    <section>
+      <h2>Sessions</h2>
+      <div class="panel">
+        <table>
+          <thead>
+            <tr>
+              <th>Coaching date</th>
+              <th>Coachee</th>
+              <th>Coach</th>
+              <th>L7</th>
+              <th>N7</th>
+              <th>Delta</th>
+              <th>Verdict</th>
+            </tr>
+          </thead>
+          <tbody id="sessionBody"></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+  <script>
+    const $ = (id) => document.getElementById(id);
+
+    function fmt(n, digits = 3) {
+      if (n == null || Number.isNaN(n)) return '—';
+      return Number(n).toFixed(digits);
+    }
+    function pct(n) {
+      if (n == null) return '—';
+      return (n * 100).toFixed(0) + '%';
+    }
+    function pill(verdict) {
+      return `<span class="pill ${verdict}">${verdict}</span>`;
+    }
+
+    async function loadResults() {
+      $('error').hidden = true;
+      const coach = $('coachFilter').value.trim();
+      const verdict = $('verdictFilter').value;
+      const params = new URLSearchParams();
+      if (coach) params.set('coach', coach);
+      if (verdict) params.set('verdict', verdict);
+      const res = await fetch('/api/results?' + params.toString());
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to load results');
+      render(data);
+    }
+
+    function render(data) {
+      const sessions = data.sessions || [];
+      const coaches = data.coaches || [];
+      const scored = sessions.filter((s) => s.verdict === 'effective' || s.verdict === 'poor');
+      const effective = scored.filter((s) => s.verdict === 'effective').length;
+      const pending = sessions.filter((s) => s.verdict === 'pending').length;
+
+      $('meta').textContent =
+        `Last sync: ${data.lastSync || 'never'} · Mode: ${data.mode || '—'} · As of: ${data.asOf || '—'}`;
+
+      $('stats').innerHTML = `
+        <div class="stat"><div class="k">Sessions</div><div class="v">${sessions.length}</div></div>
+        <div class="stat"><div class="k">Effective</div><div class="v">${effective}</div></div>
+        <div class="stat"><div class="k">Pending N7</div><div class="v">${pending}</div></div>
+        <div class="stat"><div class="k">Effectivity</div><div class="v">${pct(scored.length ? effective / scored.length : null)}</div></div>
+      `;
+
+      $('coachBody').innerHTML = coaches.length
+        ? coaches.map((c) => `
+          <tr>
+            <td>${c.coach}</td>
+            <td>${c.sessions}</td>
+            <td>${c.effective}</td>
+            <td>${c.poor}</td>
+            <td>${pct(c.effectivityRate)}</td>
+            <td>${fmt(c.avgDelta)}</td>
+          </tr>`).join('')
+        : `<tr><td colspan="6">No coach data yet — run sync.</td></tr>`;
+
+      $('sessionBody').innerHTML = sessions.length
+        ? sessions.map((s) => `
+          <tr>
+            <td>${s.coachingDate}</td>
+            <td>${s.coachee || s.coacheeEmail}</td>
+            <td>${s.coach || '—'}</td>
+            <td>${fmt(s.l7)}</td>
+            <td>${fmt(s.n7)}</td>
+            <td>${fmt(s.delta)}</td>
+            <td>${pill(s.verdict)}</td>
+          </tr>`).join('')
+        : `<tr><td colspan="7">No sessions in the bank yet — run sync.</td></tr>`;
+    }
+
+    async function runSync() {
+      $('syncBtn').disabled = true;
+      try {
+        const res = await fetch('/api/sync', { method: 'POST' });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Sync failed');
+        await loadResults();
+      } catch (err) {
+        $('error').hidden = false;
+        $('error').textContent = err.message;
+      } finally {
+        $('syncBtn').disabled = false;
+      }
+    }
+
+    $('refreshBtn').addEventListener('click', () => {
+      loadResults().catch((err) => {
+        $('error').hidden = false;
+        $('error').textContent = err.message;
+      });
+    });
+    $('syncBtn').addEventListener('click', runSync);
+    $('coachFilter').addEventListener('change', () => loadResults().catch(console.error));
+    $('verdictFilter').addEventListener('change', () => loadResults().catch(console.error));
+
+    loadResults().catch(async (err) => {
+      // Auto-seed demo bank on first visit if empty/missing
+      try {
+        await runSync();
+      } catch {
+        $('error').hidden = false;
+        $('error').textContent = err.message;
+      }
+    });
+  </script>
+</body>
+</html>

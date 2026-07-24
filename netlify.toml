@@ -1,0 +1,18 @@
+[build]
+  publish = "public"
+  functions = "netlify/functions"
+  command = "npm install"
+
+[functions]
+  node_bundler = "esbuild"
+  included_files = ["src/**", "data/**"]
+
+# Daily sync — monitors coaching dates and scores once N7 is complete
+[[scheduled.functions]]
+  name = "sync"
+  schedule = "@daily"
+
+[[redirects]]
+  from = "/api/*"
+  to = "/.netlify/functions/:splat"
+  status = 200
