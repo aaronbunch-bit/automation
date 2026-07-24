@@ -1,0 +1,21 @@
+{
+  "name": "pgc-coaching-effectivity",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Netlify pGC Looker bank: measure coaching effectivity via L7→N7 pGC delta",
+  "type": "module",
+  "scripts": {
+    "test": "node --test test/*.test.js",
+    "sync": "node scripts/run-sync.js",
+    "dev": "netlify dev"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "googleapis": "^144.0.0"
+  },
+  "devDependencies": {
+    "netlify-cli": "^17.38.1"
+  }
+}

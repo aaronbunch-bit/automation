@@ -1,0 +1,9 @@
+node_modules/
+.netlify/
+.env
+.env.local
+data/results.json
+*.log
+.DS_Store
+dist/
+coverage/
