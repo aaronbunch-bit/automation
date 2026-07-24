@@ -1,0 +1,39 @@
+# AutoNudge — Slack App Manifest (v1)
+# IT: Create from this file via api.slack.com/apps → Create New App → From a manifest.
+# Outbound DM messaging only. No event subscriptions, slash commands, or interactivity.
+
+_metadata:
+  major_version: 1
+  minor_version: 1
+
+display_information:
+  name: AutoNudge
+  description: Year-Round Workshop Scheduling automation messaging to consultants.
+  background_color: "#1F4E79"
+  long_description: |
+    AutoNudge sends automated Slack direct messages related to Year-Round Workshop
+    Scheduling. It notifies consultants of training offers, reminders, reoffers, and
+    escalations, and can nudge managers and sales coaches when offers remain unbooked.
+    This app is outbound messaging only and is separate from Ops Bot.
+
+features:
+  bot_user:
+    display_name: AutoNudge
+    always_online: true
+  app_home:
+    home_tab_enabled: true
+    messages_tab_enabled: true
+    messages_tab_read_only_enabled: true
+
+oauth_config:
+  scopes:
+    bot:
+      - chat:write
+      - im:write
+      - users:read
+      - users:read.email
+
+settings:
+  org_deploy_enabled: false
+  socket_mode_enabled: false
+  token_rotation_enabled: false
