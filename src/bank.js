@@ -5,10 +5,9 @@
 
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const LOCAL_PATH = path.join(__dirname, '..', 'data', 'results.json');
+// Use cwd so this works under Netlify's CJS function bundle (import.meta.url is unavailable).
+const LOCAL_PATH = path.join(process.cwd(), 'data', 'results.json');
 
 async function getBlobStore(storeName) {
   try {
