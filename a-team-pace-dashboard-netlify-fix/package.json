@@ -1,0 +1,19 @@
+{
+  "name": "team-pace-dashboard",
+  "version": "1.0.0",
+  "description": "A-Team pace dashboard — static site + Netlify Functions (Identity + Blobs)",
+  "private": true,
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "dependencies": {
+    "@netlify/blobs": "10.7.10",
+    "@netlify/functions": "^5.3.0"
+  },
+  "overrides": {
+    "@netlify/otel": "6.0.4"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC"
+}
