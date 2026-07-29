@@ -1,0 +1,3 @@
+# Supabase MCP config contains sensitive access tokens
+mcp.json
+.cursor/mcp.json
