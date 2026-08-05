@@ -170,6 +170,10 @@ function onOpen() {
   ui.createMenu('ReflexAI Scheduling')
     .addSubMenu(
       ui.createMenu('Send Offers')
+        .addItem('Setup Weekly Assigned Scheduling', 'setupWeeklyAssignedScheduling')
+        .addItem('Test Weekly Assigned Scheduling', 'testWeeklyAssignedScheduling')
+        .addItem('Run Weekly Assigned Scheduling', 'runWeeklyAssignedScheduling')
+        .addSeparator()
         .addItem('Send All Supergroups', 'sendItSendAllSupergroups')
         .addItem('Send Adult Learning', 'sendItSendAdultLearning')
         .addItem('Send College', 'sendItSendCollege')
