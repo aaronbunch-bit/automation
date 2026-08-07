@@ -78,7 +78,7 @@ function runWeeklyAssignedScheduling_(testMode, salesGroupFilter) {
   var weekStartKey = Utilities.formatDate(weekStart, TS.TZ, 'yyyy-MM-dd');
   var assignments = tsLoadWeeklyAssignments_(ss, weekStartKey);
   var normalizedSalesGroupFilter = String(salesGroupFilter || '').trim();
-  var normalizedSalesGroupKey = normalizedSalesGroupFilter.toLowerCase();
+  var normalizedSalesGroupKey = tsWeeklySalesGroupKey_(normalizedSalesGroupFilter);
   var batchLabel = normalizedSalesGroupFilter || 'All Supergroups';
 
   if (!Object.keys(assignments).length) {
@@ -101,16 +101,25 @@ function runWeeklyAssignedScheduling_(testMode, salesGroupFilter) {
 
   var needs = tsLoadConsultantsNeedingTraining_();
   var eligibleNeeds = [];
+  var groupNeedCount = 0;
+  var assignedSimNeedCount = 0;
+  var simMismatchSamples = [];
 
   needs.forEach(function(need) {
-    var needSalesGroupKey = String(need.salesGroup || '').trim().toLowerCase();
+    var needSalesGroupKey = tsWeeklySalesGroupKey_(need.salesGroup);
     if (normalizedSalesGroupKey && needSalesGroupKey !== normalizedSalesGroupKey) return;
+    groupNeedCount++;
 
     var assignedSim = assignments[needSalesGroupKey];
     if (!assignedSim) return;
+    assignedSimNeedCount++;
 
-    var sims = (need.sims || []).map(function(value) { return String(value || '').trim().toLowerCase(); });
-    if (sims.indexOf(String(assignedSim).trim().toLowerCase()) === -1) return;
+    if (!tsWeeklySimulationMatches_(assignedSim, need.sims || [])) {
+      if (simMismatchSamples.length < 5) {
+        simMismatchSamples.push((need.name || need.email || 'Unknown rep') + ': ' + (need.sims || []).join(' | '));
+      }
+      return;
+    }
 
     var weeklyNeed = {};
     Object.keys(need).forEach(function(key) {
@@ -124,9 +133,23 @@ function runWeeklyAssignedScheduling_(testMode, salesGroupFilter) {
   });
 
   if (!eligibleNeeds.length) {
+    tsAudit_(
+      'WEEKLY_ASSIGNED_DIAG',
+      batchLabel,
+      'No eligible weekly reps for week ' + weekStartKey +
+        '; assignedSim=' + (assignments[normalizedSalesGroupKey] || 'Multiple/none') +
+        '; loadedNeeds=' + needs.length +
+        '; groupNeeds=' + groupNeedCount +
+        '; needsWithAssignment=' + assignedSimNeedCount +
+        '; simMismatchSamples=' + simMismatchSamples.join(' || '),
+      'WARN'
+    );
     SpreadsheetApp.getUi().alert(
       'Weekly Assigned Scheduling',
-      'No reps need the assigned weekly simulations for ' + batchLabel + ' and week start ' + weekStartKey + '.',
+      'No reps matched the assigned weekly simulation for ' + batchLabel + ' and week start ' + weekStartKey + '.\n\n' +
+        'Loaded needs in this group: ' + groupNeedCount + '\n' +
+        'Assigned sim: ' + (assignments[normalizedSalesGroupKey] || 'See Weekly Sim Schedule') + '\n\n' +
+        'Check TS Audit for sample sim names from the CSV.',
       SpreadsheetApp.getUi().ButtonSet.OK
     );
     return;
@@ -243,10 +266,125 @@ function tsLoadWeeklyAssignments_(ss, weekStartKey) {
     if (!rowWeekStart || !supergroup || !simulationName) continue;
     if (rowWeekStart !== weekStartKey) continue;
 
-    assignments[supergroup.toLowerCase()] = simulationName;
+    assignments[tsWeeklySalesGroupKey_(supergroup)] = simulationName;
   }
 
   return assignments;
+}
+
+function tsWeeklySalesGroupKey_(value) {
+  var raw = String(value || '').trim().toLowerCase();
+  var compact = raw.replace(/[^a-z0-9]+/g, '');
+
+  if (!compact) return '';
+  if (compact.indexOf('highschool') !== -1) return 'high school';
+  if (compact.indexOf('adultlearner') !== -1 || compact.indexOf('adultlearning') !== -1) return 'adult learning';
+  if (compact.indexOf('elementary') !== -1 || compact === 'eld' || compact.indexOf('eld') !== -1) return 'eld';
+  if (compact.indexOf('college') !== -1) return 'college';
+  if (compact.indexOf('profcert') !== -1 || compact.indexOf('professionalcert') !== -1) return 'prof certs';
+
+  return raw;
+}
+
+function tsWeeklySimulationMatches_(assignedSim, consultantSims) {
+  var target = tsWeeklyNormalizeSimulationName_(assignedSim);
+  if (!target) return false;
+
+  return (consultantSims || []).some(function(sim) {
+    var candidate = tsWeeklyNormalizeSimulationName_(sim);
+    if (!candidate) return false;
+    if (candidate === target) return true;
+
+    if (Math.min(candidate.length, target.length) >= 12) {
+      if (candidate.indexOf(target) !== -1 || target.indexOf(candidate) !== -1) return true;
+    }
+
+    if (tsWeeklyTokenMatch_(target, candidate)) return true;
+
+    var maxLength = Math.max(target.length, candidate.length);
+    var distance = typeof editDistance_ === 'function'
+      ? editDistance_(target, candidate)
+      : tsWeeklyEditDistance_(target, candidate);
+
+    return maxLength >= 20 && distance / maxLength <= 0.12;
+  });
+}
+
+function tsWeeklyNormalizeSimulationName_(value) {
+  return String(value || '')
+    .toLowerCase()
+    .replace(/[’‘]/g, "'")
+    .replace(/&/g, ' and ')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .replace(/\b(reflex|reflexai|ai|simulation|sim)\b/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function tsWeeklyTokenMatch_(target, candidate) {
+  var targetTokens = tsWeeklyMeaningfulTokens_(target);
+  var candidateTokens = tsWeeklyMeaningfulTokens_(candidate);
+  if (targetTokens.length < 3 || candidateTokens.length < 3) return false;
+
+  var candidateMap = {};
+  candidateTokens.forEach(function(token) {
+    candidateMap[token] = true;
+  });
+
+  var matched = targetTokens.filter(function(token) {
+    return !!candidateMap[token];
+  }).length;
+
+  return matched / targetTokens.length >= 0.85 && matched / candidateTokens.length >= 0.7;
+}
+
+function tsWeeklyMeaningfulTokens_(normalizedName) {
+  var stopWords = {
+    the: true,
+    and: true,
+    for: true,
+    with: true,
+    your: true,
+    you: true,
+    a: true,
+    an: true,
+    to: true,
+    of: true,
+    in: true,
+    on: true
+  };
+
+  return String(normalizedName || '')
+    .split(' ')
+    .filter(function(token) {
+      return token && !stopWords[token];
+    });
+}
+
+function tsWeeklyEditDistance_(left, right) {
+  left = String(left || '');
+  right = String(right || '');
+
+  var matrix = [];
+  for (var i = 0; i <= left.length; i++) {
+    matrix[i] = [i];
+  }
+  for (var j = 0; j <= right.length; j++) {
+    matrix[0][j] = j;
+  }
+
+  for (i = 1; i <= left.length; i++) {
+    for (j = 1; j <= right.length; j++) {
+      var cost = left.charAt(i - 1) === right.charAt(j - 1) ? 0 : 1;
+      matrix[i][j] = Math.min(
+        matrix[i - 1][j] + 1,
+        matrix[i][j - 1] + 1,
+        matrix[i - 1][j - 1] + cost
+      );
+    }
+  }
+
+  return matrix[left.length][right.length];
 }
 
 function tsWeeklyTargetWeekStart_(today) {
