@@ -11,6 +11,7 @@ import {
   formatUtcDate,
   scoreCoachingEvent,
   summarizeByCoach,
+  summarizeBySupergroup,
   toUtcDate,
 } from './score.js';
 import { createSheetsClient, readCoachingEvents, writeScoresToSheet } from './sheets.js';
@@ -83,12 +84,14 @@ export async function runSync(options = {}) {
   }
 
   const coaches = summarizeByCoach(scored);
+  const supergroups = summarizeBySupergroup(scored);
   const bank = {
     lastSync: new Date().toISOString(),
     asOf: formatUtcDate(asOf),
     mode: config.mode,
     sessions: scored,
     coaches,
+    supergroups,
     meta: {
       eventCount: events.length,
       seriesPoints: series.length,

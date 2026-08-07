@@ -59,7 +59,7 @@
       overflow-x: clip;
       min-height: 100vh;
     }
-    .card, .theme-btn, .pill, .stat, .status-pill, th {
+    .card, .theme-btn, .pill, .stat, .status-pill, th, details.sg-parent, details.sg, .metric-box {
       transition: background-color 0.25s ease, background 0.25s ease,
         border-color 0.25s ease, color 0.25s ease, box-shadow 0.25s ease;
     }
@@ -77,11 +77,7 @@
     }
     .theme-btn:hover { opacity: 0.85; }
 
-    .title-row {
-      position: relative;
-      text-align: center;
-      margin: 6px 0 6px;
-    }
+    .title-row { position: relative; text-align: center; margin: 6px 0 6px; }
     .header-aura {
       position: absolute; top: 50%; left: 50%; z-index: -1;
       width: 100vw; width: 100dvw; max-width: none;
@@ -97,22 +93,15 @@
       transform: translateY(-50%);
       animation: auraSweep 18s linear infinite, auraBob 7s ease-in-out infinite;
     }
-    @keyframes auraSweep {
-      0% { background-position: 0% 50%; }
-      100% { background-position: 100% 50%; }
-    }
+    @keyframes auraSweep { 0% { background-position: 0% 50%; } 100% { background-position: 100% 50%; } }
     @keyframes auraBob {
       0%, 100% { transform: translateY(-50%) scaleY(1); }
       50% { transform: translateY(-46%) scaleY(1.15); }
     }
     @media (max-width: 700px) { .header-aura { display: none; } }
-    @media (prefers-reduced-motion: reduce) {
-      .header-aura { animation: none; }
-    }
+    @media (prefers-reduced-motion: reduce) { .header-aura { animation: none; } }
 
-    h1 {
-      font-size: 30px; margin: 0 0 4px; font-weight: 800; letter-spacing: -0.02em;
-    }
+    h1 { font-size: 30px; margin: 0 0 4px; font-weight: 800; letter-spacing: -0.02em; }
     .grad-text {
       background: linear-gradient(90deg, #f472b6, #a855f7 45%, #6366f1 75%, #38bdf8);
       -webkit-background-clip: text; background-clip: text; color: transparent;
@@ -166,40 +155,6 @@
     }
     .stat .v { font-size: 1.8rem; margin-top: 0.25rem; font-weight: 800; letter-spacing: -0.02em; }
 
-    section { margin-bottom: 14px; }
-    h2 { font-size: 15px; margin: 0 0 10px; font-weight: 800; letter-spacing: -0.01em; }
-
-    .card {
-      background: var(--card-bg); border-radius: 18px; padding: 6px 4px;
-      box-shadow: 0 2px 14px var(--shadow); border: 1px solid var(--card-border);
-      overflow: auto;
-    }
-    table { width: 100%; border-collapse: collapse; font-size: 0.92rem; }
-    th, td {
-      text-align: left; padding: 0.8rem 1rem;
-      border-bottom: 1px solid var(--divider); white-space: nowrap;
-    }
-    th {
-      font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.06em;
-      color: var(--text-faint); font-weight: 800; background: var(--metric-box-bg);
-    }
-    tbody tr:last-child td { border-bottom: 0; }
-    tbody tr:hover td { background: var(--metric-box-bg); }
-    td b, .rep-name { font-weight: 700; }
-
-    .status-pill {
-      display: inline-flex; align-items: center; gap: 6px;
-      padding: 4px 12px; border-radius: 999px;
-      font-size: 12px; font-weight: 700;
-    }
-    .status-pill.effective { background: var(--status-success-bg); color: var(--status-success); }
-    .status-pill.poor { background: var(--status-danger-bg); color: var(--status-danger); }
-    .status-pill.pending,
-    .status-pill.insufficient_data { background: var(--status-warning-bg); color: var(--status-warning); }
-
-    .delta.up { color: var(--status-success); font-weight: 700; }
-    .delta.down { color: var(--status-danger); font-weight: 700; }
-
     .meta {
       display: inline-flex; align-items: center; gap: 6px;
       background: var(--card-bg); border: 1px solid var(--pill-border);
@@ -213,11 +168,105 @@
       padding: 0.85rem 1.1rem; border-radius: 14px; margin-bottom: 16px;
       font-weight: 600; border: 1px solid var(--status-danger);
     }
+
+    /* --- Consumer Sales → supergroup → reps accordion --- */
+    summary { cursor: pointer; list-style: none; outline: none; }
+    summary::-webkit-details-marker { display: none; }
+    .caret {
+      display: inline-block; flex: none; width: 18px; text-align: center;
+      color: var(--text-faint); font-size: 12px; transition: transform 0.2s ease;
+    }
+    details[open] > summary > .caret { transform: rotate(90deg); }
+
+    details.sg-parent {
+      background: var(--card-bg); border: 1px solid var(--card-border);
+      border-radius: 18px; box-shadow: 0 2px 14px var(--shadow);
+      padding: 6px 8px 10px; margin-bottom: 14px;
+    }
+    .sg-parent > summary {
+      display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+      padding: 12px 12px; border-radius: 14px;
+    }
+    .sg-parent > summary:hover { background: var(--metric-box-bg); }
+    .sg-parent-title { font-size: 18px; font-weight: 800; letter-spacing: -0.01em; }
+    .spacer { flex: 1 1 auto; }
+
+    details.sg {
+      background: var(--metric-box-bg); border: 1px solid var(--card-border);
+      border-radius: 14px; margin: 8px 6px; overflow: hidden;
+    }
+    .sg > summary {
+      display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+      padding: 14px 16px;
+    }
+    .sg > summary:hover { background: color-mix(in srgb, var(--metric-box-bg) 60%, var(--card-border)); }
+    .sg-name { font-size: 15px; font-weight: 800; letter-spacing: -0.01em; }
+
+    .sg-body { padding: 4px 16px 16px; }
+    .metric-row {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      gap: 12px; margin: 6px 0 14px;
+    }
+    .metric-box {
+      background: var(--card-bg); border: 1px solid var(--card-border);
+      border-radius: 14px; padding: 12px 14px;
+    }
+    .metric-box .k {
+      font-size: 10.5px; color: var(--text-faint); text-transform: uppercase;
+      letter-spacing: 0.06em; font-weight: 800;
+    }
+    .metric-box .v { font-size: 1.5rem; font-weight: 800; margin-top: 3px; letter-spacing: -0.02em; }
+
+    .chip {
+      display: inline-flex; align-items: center; gap: 5px;
+      padding: 4px 11px; border-radius: 999px; font-size: 12px; font-weight: 700;
+      background: var(--card-bg); border: 1px solid var(--pill-border);
+      color: var(--text-muted); box-shadow: 0 1px 2px var(--shadow);
+    }
+    .chip b { color: var(--text); font-weight: 800; }
+    .chip.up { color: var(--status-success); border-color: var(--status-success); background: var(--status-success-bg); }
+    .chip.down { color: var(--status-danger); border-color: var(--status-danger); background: var(--status-danger-bg); }
+    .chip.flat { color: var(--status-warning); border-color: var(--status-warning); background: var(--status-warning-bg); }
+
+    details.reps {
+      border-top: 1px dashed var(--card-border); padding-top: 6px;
+    }
+    .reps > summary {
+      display: inline-flex; align-items: center; gap: 8px;
+      font-size: 13px; font-weight: 700; color: var(--accent);
+      padding: 8px 4px;
+    }
+    .reps-table-wrap {
+      overflow: auto; border: 1px solid var(--card-border);
+      border-radius: 12px; margin-top: 6px; background: var(--card-bg);
+    }
+    table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+    th, td {
+      text-align: left; padding: 0.7rem 0.9rem;
+      border-bottom: 1px solid var(--divider); white-space: nowrap;
+    }
+    th {
+      font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.06em;
+      color: var(--text-faint); font-weight: 800; background: var(--metric-box-bg);
+    }
+    tbody tr:last-child td { border-bottom: 0; }
+    tbody tr:hover td { background: var(--metric-box-bg); }
+    td b { font-weight: 700; }
+
+    .status-pill {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 4px 12px; border-radius: 999px; font-size: 12px; font-weight: 700;
+    }
+    .status-pill.effective { background: var(--status-success-bg); color: var(--status-success); }
+    .status-pill.poor { background: var(--status-danger-bg); color: var(--status-danger); }
+    .status-pill.pending,
+    .status-pill.insufficient_data { background: var(--status-warning-bg); color: var(--status-warning); }
+    .delta.up { color: var(--status-success); font-weight: 700; }
+    .delta.down { color: var(--status-danger); font-weight: 700; }
+    .empty { padding: 18px; color: var(--text-muted); text-align: center; }
+
     @media (prefers-reduced-motion: no-preference) {
-      .stat, .card { animation: rise 0.45s ease both; }
-      .stat:nth-child(2) { animation-delay: 0.05s; }
-      .stat:nth-child(3) { animation-delay: 0.1s; }
-      .stat:nth-child(4) { animation-delay: 0.15s; }
+      .stat, details.sg-parent { animation: rise 0.45s ease both; }
       @keyframes rise {
         from { opacity: 0; transform: translateY(6px); }
         to { opacity: 1; transform: none; }
@@ -235,7 +284,7 @@
       <div class="header-aura" aria-hidden="true"></div>
       <h1><span class="grad-text">pGC Coaching Bank</span></h1>
       <p class="tag">
-        Monitors coaching dates and scores effectivity from Looker pGC:
+        Consumer Sales coaching effectivity from Looker pGC:
         L7 (7 days before) → N7 (7 days after). An increase means effective coaching.
       </p>
     </div>
@@ -262,50 +311,13 @@
 
     <div class="stats" id="stats"></div>
 
-    <section>
-      <h2>Coach rollup</h2>
-      <div class="card">
-        <table>
-          <thead>
-            <tr>
-              <th>Coach</th>
-              <th>Sessions</th>
-              <th>Effective</th>
-              <th>Poor</th>
-              <th>Effectivity</th>
-              <th>Avg Δ pGC</th>
-            </tr>
-          </thead>
-          <tbody id="coachBody"></tbody>
-        </table>
-      </div>
-    </section>
-
-    <section>
-      <h2>Sessions</h2>
-      <div class="card">
-        <table>
-          <thead>
-            <tr>
-              <th>Coaching date</th>
-              <th>Coachee</th>
-              <th>Coach</th>
-              <th>L7</th>
-              <th>N7</th>
-              <th>Delta</th>
-              <th>Verdict</th>
-            </tr>
-          </thead>
-          <tbody id="sessionBody"></tbody>
-        </table>
-      </div>
-    </section>
+    <div id="hierarchy"></div>
   </div>
 
   <script>
     const $ = (id) => document.getElementById(id);
 
-    // --- Theme toggle (matches a-team-pace-dashboard light/dark vibe) ---
+    // --- Theme toggle (light/dark) ---
     function applyTheme(theme) {
       const dark = theme === 'dark';
       document.body.classList.toggle('dark', dark);
@@ -325,6 +337,7 @@
       try { localStorage.setItem('pgc-theme', next); } catch {}
     });
 
+    // --- Formatting helpers ---
     function fmt(n, digits = 3) {
       if (n == null || Number.isNaN(n)) return '—';
       return Number(n).toFixed(digits);
@@ -333,14 +346,154 @@
       if (n == null) return '—';
       return (n * 100).toFixed(0) + '%';
     }
-    function pill(verdict) {
-      return `<span class="status-pill ${verdict}">${verdict}</span>`;
+    function mean(nums) {
+      const arr = nums.filter((n) => typeof n === 'number' && Number.isFinite(n));
+      if (!arr.length) return null;
+      return arr.reduce((a, b) => a + b, 0) / arr.length;
     }
-    function deltaCell(n) {
+    function esc(s) {
+      return String(s == null ? '' : s).replace(/[&<>"']/g, (c) =>
+        ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    }
+    function deltaClass(n) {
+      if (n == null || Number.isNaN(n)) return 'flat';
+      return n > 0 ? 'up' : n < 0 ? 'down' : 'flat';
+    }
+    function deltaText(n) {
       if (n == null || Number.isNaN(n)) return '—';
-      const cls = n > 0 ? 'up' : n < 0 ? 'down' : '';
       const sign = n > 0 ? '+' : '';
-      return `<span class="delta ${cls}">${sign}${Number(n).toFixed(3)}</span>`;
+      return sign + Number(n).toFixed(3);
+    }
+    function pill(verdict) {
+      return `<span class="status-pill ${esc(verdict)}">${esc(verdict)}</span>`;
+    }
+
+    // --- Build the Consumer Sales → supergroup hierarchy from sessions ---
+    function groupBySupergroup(sessions) {
+      const map = new Map();
+      for (const s of sessions) {
+        const key = s.supergroup || '(Unassigned)';
+        if (!map.has(key)) map.set(key, []);
+        map.get(key).push(s);
+      }
+      return [...map.entries()]
+        .map(([supergroup, reps]) => {
+          const l7 = mean(reps.map((r) => r.l7));
+          const n7 = mean(reps.map((r) => r.n7));
+          const delta = l7 == null || n7 == null ? null : n7 - l7;
+          const effective = reps.filter((r) => r.verdict === 'effective').length;
+          const poor = reps.filter((r) => r.verdict === 'poor').length;
+          const pending = reps.filter((r) => r.verdict === 'pending').length;
+          const scored = effective + poor;
+          return {
+            supergroup, reps, l7, n7, delta, effective, poor, pending,
+            effectivityRate: scored ? effective / scored : null,
+          };
+        })
+        .sort((a, b) => a.supergroup.localeCompare(b.supergroup));
+    }
+
+    function metricBoxes(l7, n7, delta) {
+      return `
+        <div class="metric-row">
+          <div class="metric-box"><div class="k">Overall pGC L7</div><div class="v">${fmt(l7)}</div></div>
+          <div class="metric-box"><div class="k">Overall pGC N7</div><div class="v">${fmt(n7)}</div></div>
+          <div class="metric-box"><div class="k">Δ pGC (N7 − L7)</div><div class="v delta ${deltaClass(delta)}">${deltaText(delta)}</div></div>
+        </div>`;
+    }
+
+    function repsTable(reps) {
+      const rows = reps
+        .slice()
+        .sort((a, b) => (a.coachee || '').localeCompare(b.coachee || ''))
+        .map((s) => `
+          <tr>
+            <td><b>${esc(s.coachee || s.coacheeEmail)}</b></td>
+            <td>${esc(s.coach || '—')}</td>
+            <td>${esc(s.coachingDate)}</td>
+            <td>${fmt(s.l7)}</td>
+            <td>${fmt(s.n7)}</td>
+            <td><span class="delta ${deltaClass(s.delta)}">${deltaText(s.delta)}</span></td>
+            <td>${pill(s.verdict)}</td>
+          </tr>`).join('');
+      return `
+        <div class="reps-table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Rep</th><th>Coach</th><th>Coaching date</th>
+                <th>L7</th><th>N7</th><th>Delta</th><th>Verdict</th>
+              </tr>
+            </thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>`;
+    }
+
+    function supergroupSection(g) {
+      const dc = deltaClass(g.delta);
+      return `
+        <details class="sg">
+          <summary>
+            <span class="caret">▶</span>
+            <span class="sg-name">${esc(g.supergroup)}</span>
+            <span class="spacer"></span>
+            <span class="chip ${dc}">Δ <b>${deltaText(g.delta)}</b></span>
+            <span class="chip">Effectivity <b>${pct(g.effectivityRate)}</b></span>
+            <span class="chip">${g.reps.length} rep${g.reps.length === 1 ? '' : 's'}</span>
+          </summary>
+          <div class="sg-body">
+            ${metricBoxes(g.l7, g.n7, g.delta)}
+            <details class="reps">
+              <summary>▸ Drill into reps (${g.reps.length})</summary>
+              ${repsTable(g.reps)}
+            </details>
+          </div>
+        </details>`;
+    }
+
+    function render(data) {
+      const sessions = data.sessions || [];
+      const groups = groupBySupergroup(sessions);
+
+      const scored = sessions.filter((s) => s.verdict === 'effective' || s.verdict === 'poor');
+      const effective = scored.filter((s) => s.verdict === 'effective').length;
+      const pending = sessions.filter((s) => s.verdict === 'pending').length;
+      const overallL7 = mean(sessions.map((s) => s.l7));
+      const overallN7 = mean(sessions.map((s) => s.n7));
+      const overallDelta = overallL7 == null || overallN7 == null ? null : overallN7 - overallL7;
+
+      $('meta').innerHTML =
+        `Last sync: <b>${esc(data.lastSync || 'never')}</b> · Mode: <b>${esc(data.mode || '—')}</b> · As of: <b>${esc(data.asOf || '—')}</b>`;
+
+      $('stats').innerHTML = `
+        <div class="stat"><div class="k">Reps</div><div class="v">${sessions.length}</div></div>
+        <div class="stat"><div class="k">Effective</div><div class="v">${effective}</div></div>
+        <div class="stat"><div class="k">Pending N7</div><div class="v">${pending}</div></div>
+        <div class="stat"><div class="k">Effectivity</div><div class="v">${pct(scored.length ? effective / scored.length : null)}</div></div>
+      `;
+
+      if (!sessions.length) {
+        $('hierarchy').innerHTML = `<div class="card" style="padding:6px 4px"><div class="empty">No sessions in the bank yet — run sync.</div></div>`;
+        return;
+      }
+
+      const dc = deltaClass(overallDelta);
+      $('hierarchy').innerHTML = `
+        <details class="sg-parent" open>
+          <summary>
+            <span class="caret">▶</span>
+            <span class="sg-parent-title">Consumer Sales</span>
+            <span class="spacer"></span>
+            <span class="chip">L7 <b>${fmt(overallL7)}</b></span>
+            <span class="chip">N7 <b>${fmt(overallN7)}</b></span>
+            <span class="chip ${dc}">Δ <b>${deltaText(overallDelta)}</b></span>
+            <span class="chip">${groups.length} supergroup${groups.length === 1 ? '' : 's'}</span>
+          </summary>
+          <div style="padding-top:4px">
+            ${groups.map(supergroupSection).join('')}
+          </div>
+        </details>`;
     }
 
     async function loadResults() {
@@ -354,49 +507,6 @@
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to load results');
       render(data);
-    }
-
-    function render(data) {
-      const sessions = data.sessions || [];
-      const coaches = data.coaches || [];
-      const scored = sessions.filter((s) => s.verdict === 'effective' || s.verdict === 'poor');
-      const effective = scored.filter((s) => s.verdict === 'effective').length;
-      const pending = sessions.filter((s) => s.verdict === 'pending').length;
-
-      $('meta').innerHTML =
-        `Last sync: <b>${data.lastSync || 'never'}</b> · Mode: <b>${data.mode || '—'}</b> · As of: <b>${data.asOf || '—'}</b>`;
-
-      $('stats').innerHTML = `
-        <div class="stat"><div class="k">Sessions</div><div class="v">${sessions.length}</div></div>
-        <div class="stat"><div class="k">Effective</div><div class="v">${effective}</div></div>
-        <div class="stat"><div class="k">Pending N7</div><div class="v">${pending}</div></div>
-        <div class="stat"><div class="k">Effectivity</div><div class="v">${pct(scored.length ? effective / scored.length : null)}</div></div>
-      `;
-
-      $('coachBody').innerHTML = coaches.length
-        ? coaches.map((c) => `
-          <tr>
-            <td><b>${c.coach}</b></td>
-            <td>${c.sessions}</td>
-            <td>${c.effective}</td>
-            <td>${c.poor}</td>
-            <td>${pct(c.effectivityRate)}</td>
-            <td>${deltaCell(c.avgDelta)}</td>
-          </tr>`).join('')
-        : `<tr><td colspan="6">No coach data yet — run sync.</td></tr>`;
-
-      $('sessionBody').innerHTML = sessions.length
-        ? sessions.map((s) => `
-          <tr>
-            <td>${s.coachingDate}</td>
-            <td><b>${s.coachee || s.coacheeEmail}</b></td>
-            <td>${s.coach || '—'}</td>
-            <td>${fmt(s.l7)}</td>
-            <td>${fmt(s.n7)}</td>
-            <td>${deltaCell(s.delta)}</td>
-            <td>${pill(s.verdict)}</td>
-          </tr>`).join('')
-        : `<tr><td colspan="7">No sessions in the bank yet — run sync.</td></tr>`;
     }
 
     async function runSync() {
@@ -424,11 +534,11 @@
     $('coachFilter').addEventListener('change', () => loadResults().catch(console.error));
     $('verdictFilter').addEventListener('change', () => loadResults().catch(console.error));
 
-    loadResults().catch(async (err) => {
+    loadResults().catch(async () => {
       // Auto-seed demo bank on first visit if empty/missing
       try {
         await runSync();
-      } catch {
+      } catch (err) {
         $('error').hidden = false;
         $('error').textContent = err.message;
       }

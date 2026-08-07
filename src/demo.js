@@ -1,6 +1,7 @@
 /**
  * Demo fixtures so the bank can run without Looker / Sheets credentials.
- * Simulates three coaching sessions with known L7→N7 outcomes.
+ * Simulates the Consumer Sales org: six supergroups, each with a couple of
+ * reps whose L7→N7 pGC outcomes are deterministic.
  */
 
 import { addDays, formatUtcDate, toUtcDate } from './score.js';
@@ -21,49 +22,58 @@ function dailySeries(personKey, startDate, days, base, slope) {
 /** Fixed "today" for deterministic demo scoring. */
 export const DEMO_AS_OF = '2026-07-24';
 
+/**
+ * Consumer Sales rep catalog grouped by supergroup.
+ * `l7`/`n7` are the flat pGC means for the before/after windows.
+ * `pending: true` uses a recent coaching date so N7 has not completed yet.
+ */
+const DEMO_REPS = [
+  // Adult Learning — both lift → effective
+  { supergroup: 'Adult Learning', coachee: 'Alex Rivera', email: 'alex@example.com', coach: 'Jordan Lee', date: '2026-07-10', l7: 0.40, n7: 0.55 },
+  { supergroup: 'Adult Learning', coachee: 'Dana Kim', email: 'dana@example.com', coach: 'Jordan Lee', date: '2026-07-09', l7: 0.50, n7: 0.62 },
+  // College — both drop → poor
+  { supergroup: 'College', coachee: 'Sam Patel', email: 'sam@example.com', coach: 'Morgan Diaz', date: '2026-07-08', l7: 0.55, n7: 0.485 },
+  { supergroup: 'College', coachee: 'Priya Shah', email: 'priya@example.com', coach: 'Morgan Diaz', date: '2026-07-10', l7: 0.60, n7: 0.50 },
+  // ELD — one up, one down
+  { supergroup: 'ELD', coachee: 'Marco Ruiz', email: 'marco@example.com', coach: 'Riley Fox', date: '2026-07-08', l7: 0.30, n7: 0.42 },
+  { supergroup: 'ELD', coachee: 'Lena Ortiz', email: 'lena@example.com', coach: 'Riley Fox', date: '2026-07-09', l7: 0.45, n7: 0.40 },
+  // High School — one effective, one still pending
+  { supergroup: 'High School', coachee: 'Noah Park', email: 'noah@example.com', coach: 'Taylor Reed', date: '2026-07-10', l7: 0.48, n7: 0.60 },
+  { supergroup: 'High School', coachee: 'Casey Ng', email: 'casey@example.com', coach: 'Taylor Reed', date: '2026-07-20', l7: 0.45, pending: true },
+  // Prof Certs — one up, one down
+  { supergroup: 'Prof Certs', coachee: 'Ivy Chen', email: 'ivy@example.com', coach: 'Jamie Wu', date: '2026-07-08', l7: 0.52, n7: 0.58 },
+  { supergroup: 'Prof Certs', coachee: 'Omar Ali', email: 'omar@example.com', coach: 'Jamie Wu', date: '2026-07-09', l7: 0.50, n7: 0.47 },
+  // Test Prep — one effective, one still pending
+  { supergroup: 'Test Prep', coachee: 'Zoe Blum', email: 'zoe@example.com', coach: 'Avery Stone', date: '2026-07-10', l7: 0.38, n7: 0.50 },
+  { supergroup: 'Test Prep', coachee: 'Ravi Nair', email: 'ravi@example.com', coach: 'Avery Stone', date: '2026-07-20', l7: 0.47, pending: true },
+];
+
 export function loadDemoCoachingEvents() {
-  return [
-    {
-      id: 'alex@example.com|2026-07-10|2',
-      coachee: 'Alex Rivera',
-      coacheeEmail: 'alex@example.com',
-      coach: 'Jordan Lee',
-      coachingDate: '2026-07-10',
-      sheetRow: 2,
-    },
-    {
-      id: 'sam@example.com|2026-07-08|3',
-      coachee: 'Sam Patel',
-      coacheeEmail: 'sam@example.com',
-      coach: 'Jordan Lee',
-      coachingDate: '2026-07-08',
-      sheetRow: 3,
-    },
-    {
-      id: 'casey@example.com|2026-07-20|4',
-      coachee: 'Casey Ng',
-      coacheeEmail: 'casey@example.com',
-      coach: 'Morgan Diaz',
-      coachingDate: '2026-07-20',
-      sheetRow: 4,
-    },
-  ];
+  return DEMO_REPS.map((r, i) => ({
+    id: `${r.email}|${r.date}|${i + 2}`,
+    coachee: r.coachee,
+    coacheeEmail: r.email,
+    coach: r.coach,
+    supergroup: r.supergroup,
+    coachingDate: r.date,
+    sheetRow: i + 2,
+  }));
 }
 
 /**
- * Alex: clear lift after coaching → effective
- * Sam: flat/down after coaching → poor
- * Casey: N7 not yet complete → pending
+ * Build the per-rep daily pGC series. Each rep gets a flat L7 window and,
+ * unless pending, a flat N7 window — so scored L7/N7 equal the catalog values.
  */
 export function loadDemoPgcSeries() {
-  return [
-    // Alex: L7 ~0.40, N7 climbs to ~0.55
-    ...dailySeries('alex@example.com', '2026-07-01', 7, 0.4, 0),
-    ...dailySeries('alex@example.com', '2026-07-11', 7, 0.52, 0.01),
-    // Sam: L7 ~0.55, N7 ~0.48
-    ...dailySeries('sam@example.com', '2026-07-01', 7, 0.55, 0),
-    ...dailySeries('sam@example.com', '2026-07-09', 7, 0.5, -0.005),
-    // Casey: only pre-window so far
-    ...dailySeries('casey@example.com', '2026-07-13', 7, 0.45, 0.002),
-  ];
+  const out = [];
+  for (const r of DEMO_REPS) {
+    const day = toUtcDate(r.date);
+    const l7Start = formatUtcDate(addDays(day, -7));
+    out.push(...dailySeries(r.email, l7Start, 7, r.l7, 0));
+    if (!r.pending && typeof r.n7 === 'number') {
+      const n7Start = formatUtcDate(addDays(day, 1));
+      out.push(...dailySeries(r.email, n7Start, 7, r.n7, 0));
+    }
+  }
+  return out;
 }
