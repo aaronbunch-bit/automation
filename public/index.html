@@ -265,6 +265,47 @@
     .delta.down { color: var(--status-danger); font-weight: 700; }
     .empty { padding: 18px; color: var(--text-muted); text-align: center; }
 
+    /* --- Supergroups / Managers segmented toggle --- */
+    .view-toggle {
+      display: inline-flex; gap: 4px; padding: 4px;
+      background: var(--card-bg); border: 1px solid var(--pill-border);
+      border-radius: 999px; box-shadow: 0 1px 2px var(--shadow); margin-bottom: 14px;
+    }
+    .view-toggle .seg {
+      font: inherit; font-size: 13px; font-weight: 700; cursor: pointer;
+      border: none; background: transparent; color: var(--text-muted);
+      padding: 8px 18px; border-radius: 999px;
+    }
+    .view-toggle .seg:hover { color: var(--text); }
+    .view-toggle .seg.active {
+      background: linear-gradient(105deg, #6366f1, #a855f7);
+      color: #fff; box-shadow: 0 2px 8px rgba(99,102,241,0.3);
+    }
+    .toggle-row { display: flex; justify-content: center; }
+
+    /* --- Clickable rep name → scheduled simulations --- */
+    .rep-name-btn {
+      font: inherit; font-weight: 700; color: var(--text);
+      background: none; border: none; cursor: pointer; padding: 0;
+      display: inline-flex; align-items: center; gap: 6px;
+    }
+    .rep-name-btn:hover { color: var(--accent); }
+    .rep-caret {
+      font-size: 10px; color: var(--text-faint); transition: transform 0.2s ease;
+    }
+    .rep-name-btn.open .rep-caret { transform: rotate(90deg); color: var(--accent); }
+    .sim-row > td { background: var(--metric-box-bg); padding: 0; }
+    .sim-wrap { padding: 10px 14px 14px; }
+    .sim-title {
+      font-size: 11px; font-weight: 800; color: var(--text-faint);
+      text-transform: uppercase; letter-spacing: 0.06em; margin: 2px 0 8px;
+    }
+    table.sim-table { background: transparent; }
+    table.sim-table th { background: transparent; border-bottom: 1px solid var(--divider); }
+    table.sim-table td { border-bottom: 1px dashed var(--divider); }
+    table.sim-table tbody tr:hover td { background: transparent; }
+    .sim-empty { color: var(--text-muted); font-size: 13px; padding: 2px 2px 6px; }
+
     @media (prefers-reduced-motion: no-preference) {
       .stat, details.sg-parent { animation: rise 0.45s ease both; }
       @keyframes rise {
@@ -310,6 +351,13 @@
     <div id="error" class="error" hidden></div>
 
     <div class="stats" id="stats"></div>
+
+    <div class="toggle-row">
+      <div class="view-toggle" id="viewToggle">
+        <button class="seg active" data-view="supergroup" type="button">Supergroups</button>
+        <button class="seg" data-view="coach" type="button">Managers</button>
+      </div>
+    </div>
 
     <div id="hierarchy"></div>
   </div>
@@ -368,16 +416,22 @@
       return `<span class="status-pill ${esc(verdict)}">${esc(verdict)}</span>`;
     }
 
-    // --- Build the Consumer Sales → supergroup hierarchy from sessions ---
-    function groupBySupergroup(sessions) {
+    // --- View state: group reps by supergroup or by manager (coach) ---
+    let currentView = 'supergroup';
+    let lastData = null;
+    try { currentView = localStorage.getItem('pgc-view') || 'supergroup'; } catch {}
+
+    // --- Build the Consumer Sales hierarchy from sessions, keyed by field ---
+    function groupBy(sessions, keyField) {
+      const fallback = keyField === 'coach' ? '(No manager)' : '(Unassigned)';
       const map = new Map();
       for (const s of sessions) {
-        const key = s.supergroup || '(Unassigned)';
+        const key = (s[keyField] || '').trim() || fallback;
         if (!map.has(key)) map.set(key, []);
         map.get(key).push(s);
       }
       return [...map.entries()]
-        .map(([supergroup, reps]) => {
+        .map(([name, reps]) => {
           const l7 = mean(reps.map((r) => r.l7));
           const n7 = mean(reps.map((r) => r.n7));
           const delta = l7 == null || n7 == null ? null : n7 - l7;
@@ -386,11 +440,11 @@
           const pending = reps.filter((r) => r.verdict === 'pending').length;
           const scored = effective + poor;
           return {
-            supergroup, reps, l7, n7, delta, effective, poor, pending,
+            name, reps, l7, n7, delta, effective, poor, pending,
             effectivityRate: scored ? effective / scored : null,
           };
         })
-        .sort((a, b) => a.supergroup.localeCompare(b.supergroup));
+        .sort((a, b) => a.name.localeCompare(b.name));
     }
 
     function metricBoxes(l7, n7, delta) {
@@ -402,20 +456,58 @@
         </div>`;
     }
 
+    let simUid = 0;
+
+    function simTable(sims) {
+      if (!sims || !sims.length) {
+        return `<div class="sim-empty">No simulations scheduled.</div>`;
+      }
+      const rows = sims
+        .slice()
+        .sort((a, b) => String(a.scheduledDate).localeCompare(String(b.scheduledDate)))
+        .map((m, i) => `
+          <tr>
+            <td>${esc(m.name || 'Simulation ' + (i + 1))}</td>
+            <td>${esc(m.scheduledDate)}</td>
+            <td>${fmt(m.score)}</td>
+          </tr>`).join('');
+      return `
+        <table class="sim-table">
+          <thead><tr><th>Simulation</th><th>Scheduled</th><th>Score</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>`;
+    }
+
     function repsTable(reps) {
       const rows = reps
         .slice()
         .sort((a, b) => (a.coachee || '').localeCompare(b.coachee || ''))
-        .map((s) => `
+        .map((s) => {
+          const uid = 'sim-' + (++simUid);
+          const name = esc(s.coachee || s.coacheeEmail);
+          return `
           <tr>
-            <td><b>${esc(s.coachee || s.coacheeEmail)}</b></td>
+            <td>
+              <button type="button" class="rep-name-btn" data-target="${uid}" aria-expanded="false">
+                <span class="rep-caret">▶</span>${name}
+              </button>
+            </td>
             <td>${esc(s.coach || '—')}</td>
             <td>${esc(s.coachingDate)}</td>
             <td>${fmt(s.l7)}</td>
             <td>${fmt(s.n7)}</td>
             <td><span class="delta ${deltaClass(s.delta)}">${deltaText(s.delta)}</span></td>
             <td>${pill(s.verdict)}</td>
-          </tr>`).join('');
+          </tr>
+          <tr class="sim-row" id="${uid}" hidden>
+            <td colspan="7">
+              <div class="sim-wrap">
+                <div class="sim-title">Scheduled simulations — ${name}</div>
+                ${simTable(s.simulations)}
+              </div>
+            </td>
+          </tr>`;
+        }).join('');
       return `
         <div class="reps-table-wrap">
           <table>
@@ -430,13 +522,13 @@
         </div>`;
     }
 
-    function supergroupSection(g) {
+    function groupSection(g) {
       const dc = deltaClass(g.delta);
       return `
         <details class="sg">
           <summary>
             <span class="caret">▶</span>
-            <span class="sg-name">${esc(g.supergroup)}</span>
+            <span class="sg-name">${esc(g.name)}</span>
             <span class="spacer"></span>
             <span class="chip ${dc}">Δ <b>${deltaText(g.delta)}</b></span>
             <span class="chip">Effectivity <b>${pct(g.effectivityRate)}</b></span>
@@ -453,8 +545,10 @@
     }
 
     function render(data) {
+      lastData = data;
       const sessions = data.sessions || [];
-      const groups = groupBySupergroup(sessions);
+      const groups = groupBy(sessions, currentView === 'coach' ? 'coach' : 'supergroup');
+      const groupNoun = currentView === 'coach' ? 'manager' : 'supergroup';
 
       const scored = sessions.filter((s) => s.verdict === 'effective' || s.verdict === 'poor');
       const effective = scored.filter((s) => s.verdict === 'effective').length;
@@ -488,10 +582,10 @@
             <span class="chip">L7 <b>${fmt(overallL7)}</b></span>
             <span class="chip">N7 <b>${fmt(overallN7)}</b></span>
             <span class="chip ${dc}">Δ <b>${deltaText(overallDelta)}</b></span>
-            <span class="chip">${groups.length} supergroup${groups.length === 1 ? '' : 's'}</span>
+            <span class="chip">${groups.length} ${groupNoun}${groups.length === 1 ? '' : 's'}</span>
           </summary>
           <div style="padding-top:4px">
-            ${groups.map(supergroupSection).join('')}
+            ${groups.map(groupSection).join('')}
           </div>
         </details>`;
     }
@@ -533,6 +627,34 @@
     $('syncBtn').addEventListener('click', runSync);
     $('coachFilter').addEventListener('change', () => loadResults().catch(console.error));
     $('verdictFilter').addEventListener('change', () => loadResults().catch(console.error));
+
+    // Supergroups / Managers toggle — re-render from the last loaded data.
+    function syncToggleButtons() {
+      for (const btn of $('viewToggle').querySelectorAll('.seg')) {
+        btn.classList.toggle('active', btn.dataset.view === currentView);
+      }
+    }
+    syncToggleButtons();
+    $('viewToggle').addEventListener('click', (e) => {
+      const btn = e.target.closest('.seg');
+      if (!btn) return;
+      currentView = btn.dataset.view === 'coach' ? 'coach' : 'supergroup';
+      try { localStorage.setItem('pgc-view', currentView); } catch {}
+      syncToggleButtons();
+      if (lastData) render(lastData);
+    });
+
+    // Click a rep's name to reveal their scheduled simulations inline.
+    $('hierarchy').addEventListener('click', (e) => {
+      const btn = e.target.closest('.rep-name-btn');
+      if (!btn) return;
+      const row = document.getElementById(btn.dataset.target);
+      if (!row) return;
+      const show = row.hidden;
+      row.hidden = !show;
+      btn.classList.toggle('open', show);
+      btn.setAttribute('aria-expanded', String(show));
+    });
 
     loadResults().catch(async () => {
       // Auto-seed demo bank on first visit if empty/missing

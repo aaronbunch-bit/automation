@@ -43,10 +43,33 @@ const DEMO_REPS = [
   // Prof Certs — one up, one down
   { supergroup: 'Prof Certs', coachee: 'Ivy Chen', email: 'ivy@example.com', coach: 'Jamie Wu', date: '2026-07-08', l7: 0.52, n7: 0.58 },
   { supergroup: 'Prof Certs', coachee: 'Omar Ali', email: 'omar@example.com', coach: 'Jamie Wu', date: '2026-07-09', l7: 0.50, n7: 0.47 },
-  // Test Prep — one effective, one still pending
-  { supergroup: 'Test Prep', coachee: 'Zoe Blum', email: 'zoe@example.com', coach: 'Avery Stone', date: '2026-07-10', l7: 0.38, n7: 0.50 },
-  { supergroup: 'Test Prep', coachee: 'Ravi Nair', email: 'ravi@example.com', coach: 'Avery Stone', date: '2026-07-20', l7: 0.47, pending: true },
 ];
+
+/**
+ * Simulated coaching-simulation history for a rep: a few scheduled sims with
+ * scores, spanning the L7 window through the N7 window (pending reps only get
+ * pre-coaching sims). Deterministic so the demo is stable.
+ */
+function demoSimulations(r) {
+  const day = toUtcDate(r.date);
+  const after = typeof r.n7 === 'number' ? r.n7 : r.l7;
+  const planned = [
+    { offset: -6, score: r.l7 },
+    { offset: -2, score: (r.l7 + after) / 2 },
+  ];
+  if (!r.pending && typeof r.n7 === 'number') {
+    planned.push({ offset: 3, score: r.n7 });
+    planned.push({ offset: 6, score: r.n7 });
+  } else {
+    planned.push({ offset: 2, score: r.l7 });
+  }
+  return planned.map((p, i) => ({
+    id: `${r.email}-sim-${i + 1}`,
+    name: `Simulation ${i + 1}`,
+    scheduledDate: formatUtcDate(addDays(day, p.offset)),
+    score: Number(Number(p.score).toFixed(3)),
+  }));
+}
 
 export function loadDemoCoachingEvents() {
   return DEMO_REPS.map((r, i) => ({
@@ -57,6 +80,7 @@ export function loadDemoCoachingEvents() {
     supergroup: r.supergroup,
     coachingDate: r.date,
     sheetRow: i + 2,
+    simulations: demoSimulations(r),
   }));
 }
 

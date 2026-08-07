@@ -90,7 +90,7 @@ describe('demo bank', () => {
     assert.equal(jordan.effectivityRate, 1);
   });
 
-  it('rolls up the six Consumer Sales supergroups', async () => {
+  it('rolls up the five Consumer Sales supergroups', async () => {
     const result = await runSync({
       config: {
         mode: 'demo',
@@ -103,10 +103,10 @@ describe('demo bank', () => {
     });
 
     const groups = result.bank.supergroups;
-    assert.equal(groups.length, 6);
+    assert.equal(groups.length, 5);
     assert.deepEqual(
       groups.map((g) => g.supergroup),
-      ['Adult Learning', 'College', 'ELD', 'High School', 'Prof Certs', 'Test Prep']
+      ['Adult Learning', 'College', 'ELD', 'High School', 'Prof Certs']
     );
 
     const adult = groups.find((g) => g.supergroup === 'Adult Learning');
@@ -131,7 +131,25 @@ describe('demo bank', () => {
   it('indexes demo series by person', () => {
     const map = indexSeriesByPerson(loadDemoPgcSeries());
     assert.ok(map.get('alex@example.com').length >= 14);
-    assert.equal(loadDemoCoachingEvents().length, 12);
+    assert.equal(loadDemoCoachingEvents().length, 10);
+  });
+
+  it('attaches scheduled simulations to each rep', async () => {
+    const result = await runSync({
+      config: {
+        mode: 'demo',
+        sheet: { writeback: false, spreadsheetId: 'demo', tab: 'Coaching' },
+        looker: {},
+        blobStore: 'pgc-test-bank',
+      },
+      asOf: DEMO_AS_OF,
+      writeback: false,
+    });
+    const alex = result.bank.sessions.find((s) => s.coacheeEmail === 'alex@example.com');
+    assert.ok(Array.isArray(alex.simulations));
+    assert.ok(alex.simulations.length >= 1);
+    assert.ok(alex.simulations[0].scheduledDate);
+    assert.equal(typeof alex.simulations[0].score, 'number');
   });
 });
 

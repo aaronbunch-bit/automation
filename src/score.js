@@ -106,6 +106,7 @@ export function scoreCoachingEvent(event, series, asOf = new Date()) {
     supergroup: event.supergroup || '',
     coachingDate,
     sheetRow: event.sheetRow ?? null,
+    simulations: Array.isArray(event.simulations) ? event.simulations : [],
     l7Window: l7,
     n7Window: n7,
     n7Complete: ready,
