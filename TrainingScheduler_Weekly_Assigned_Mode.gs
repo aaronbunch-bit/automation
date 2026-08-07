@@ -356,16 +356,26 @@ function tsSendWeeklyAssignedTestMessage_(need, window) {
 }
 
 function tsBuildWeeklyAssignedSlackMessage_(need, window, testMode) {
+  var simulationName = need.sims.join(', ');
+  var selectedTime = tsFriendlyDate_(window.dateStr) + ', ' + tsFriendlyTime_(window.startStr) + '–' + tsFriendlyTime_(window.endStr) + ' CT';
+
   return [
-    '*Reflex-AI weekly training scheduled*',
+    '*Reflex-AI Training Scheduled*',
     '',
-    'You have been scheduled for a *20-minute* Reflex-AI training block.',
+    'For the week of ' + tsFriendlyDate_(need.weekStart) + ', you have been scheduled for a 20-minute training block.',
     '',
-    '*Simulation to complete:* ' + need.sims.join(', '),
-    '*Time:* ' + tsFriendlyDate_(window.dateStr) + ', ' + tsFriendlyTime_(window.startStr) + '–' + tsFriendlyTime_(window.endStr) + ' CT',
+    '*Simulation to Complete:* ' + tsUnderlineSlackText_(simulationName),
+    '*Time:* ' + tsUnderlineSlackText_(selectedTime),
     '',
-    'Please complete only this assigned simulation during the scheduled block.'
+    'Please complete only this assigned simulation during the scheduled block.',
+    'If you have any questions, please contact your direct manager.'
   ].join('\n');
+}
+
+function tsUnderlineSlackText_(value) {
+  return String(value || '').split('').map(function(character) {
+    return character === ' ' ? character : character + '\u0332';
+  }).join('');
 }
 
 function tsWeeklyDateKey_(value) {
