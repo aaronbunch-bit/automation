@@ -4,158 +4,217 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>pGC Coaching Bank</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Serif:wght@500;600&display=swap" rel="stylesheet" />
   <style>
     :root {
-      --ink: #14201a;
-      --muted: #4d5c54;
-      --line: #c9d4cc;
-      --paper: #f3f6f2;
-      --panel: #ffffff;
-      --good: #1f6b45;
-      --good-bg: #d8f0e3;
-      --bad: #8a2f24;
-      --bad-bg: #f8e0dc;
-      --pending: #6b5a1f;
-      --pending-bg: #f3ebc8;
-      --accent: #0e6b6b;
-      --hero-grad: linear-gradient(145deg, #e8f2ec 0%, #d4e4dc 42%, #c5d8e8 100%);
+      color-scheme: light;
+      --bg: #f6f5fb;
+      --text: #1a1a2e;
+      --text-muted: #6b6b80;
+      --text-faint: #9a97ad;
+      --card-bg: #ffffff;
+      --card-border: #f0eef9;
+      --pill-border: #ece9f7;
+      --metric-box-bg: #fafaff;
+      --divider: #f0eef9;
+      --shadow: rgba(90,70,160,0.08);
+      --status-success: #15803d;
+      --status-success-bg: rgba(21,128,61,0.12);
+      --status-danger: #b91c1c;
+      --status-danger-bg: rgba(185,28,28,0.12);
+      --status-warning: #a16207;
+      --status-warning-bg: rgba(161,98,7,0.13);
+      --status-info: #4f46e5;
+      --accent: #7c3aed;
+    }
+    body.dark {
+      color-scheme: dark;
+      --bg: #171426;
+      --text: #fbfaff;
+      --text-muted: #d4cfe5;
+      --text-faint: #b4aecb;
+      --card-bg: #242039;
+      --card-border: #403959;
+      --pill-border: #4a4265;
+      --metric-box-bg: #1e1b30;
+      --divider: #403959;
+      --shadow: rgba(0,0,0,0.45);
+      --status-success: #4ade80;
+      --status-success-bg: rgba(74,222,128,0.16);
+      --status-danger: #f87171;
+      --status-danger-bg: rgba(248,113,113,0.16);
+      --status-warning: #fbbf24;
+      --status-warning-bg: rgba(251,191,36,0.16);
+      --status-info: #a5b4fc;
+      --accent: #c4b5fd;
     }
     * { box-sizing: border-box; }
+    html { overflow-x: clip; }
     body {
       margin: 0;
-      font-family: "IBM Plex Sans", sans-serif;
-      color: var(--ink);
-      background: var(--paper);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      padding: 28px;
+      transition: background 0.25s ease, color 0.25s ease;
+      overflow-x: clip;
       min-height: 100vh;
     }
-    header {
-      background: var(--hero-grad);
-      border-bottom: 1px solid var(--line);
-      padding: 2.25rem 1.5rem 1.75rem;
+    .card, .theme-btn, .pill, .stat, .status-pill, th {
+      transition: background-color 0.25s ease, background 0.25s ease,
+        border-color 0.25s ease, color 0.25s ease, box-shadow 0.25s ease;
     }
-    header .wrap { max-width: 1100px; margin: 0 auto; }
-    .brand {
-      font-family: "IBM Plex Serif", serif;
-      font-size: clamp(1.75rem, 3vw, 2.35rem);
-      font-weight: 600;
-      letter-spacing: -0.02em;
-      margin: 0 0 0.35rem;
+    .wrap { max-width: 1140px; margin: 0 auto; padding: 0 20px; position: relative; }
+
+    .top-bar {
+      display: flex; justify-content: flex-end; align-items: center;
+      margin: 0 0 2px; min-height: 34px; gap: 10px;
+    }
+    .theme-btn {
+      background: var(--card-bg); color: var(--text);
+      border: 1px solid var(--pill-border); border-radius: 999px;
+      padding: 7px 14px; font-size: 12px; font-weight: 700; cursor: pointer;
+      box-shadow: 0 1px 2px var(--shadow); white-space: nowrap;
+    }
+    .theme-btn:hover { opacity: 0.85; }
+
+    .title-row {
+      position: relative;
+      text-align: center;
+      margin: 6px 0 6px;
+    }
+    .header-aura {
+      position: absolute; top: 50%; left: 50%; z-index: -1;
+      width: 100vw; width: 100dvw; max-width: none;
+      margin-left: -50vw; margin-left: -50dvw;
+      height: 260px;
+      background: linear-gradient(90deg,
+        rgba(56,189,248,0.26), rgba(99,102,241,0.3), rgba(168,85,247,0.32),
+        rgba(244,114,182,0.32), rgba(56,189,248,0.26), rgba(99,102,241,0.3),
+        rgba(168,85,247,0.32));
+      background-size: 300% 100%;
+      filter: blur(55px);
+      pointer-events: none;
+      transform: translateY(-50%);
+      animation: auraSweep 18s linear infinite, auraBob 7s ease-in-out infinite;
+    }
+    @keyframes auraSweep {
+      0% { background-position: 0% 50%; }
+      100% { background-position: 100% 50%; }
+    }
+    @keyframes auraBob {
+      0%, 100% { transform: translateY(-50%) scaleY(1); }
+      50% { transform: translateY(-46%) scaleY(1.15); }
+    }
+    @media (max-width: 700px) { .header-aura { display: none; } }
+    @media (prefers-reduced-motion: reduce) {
+      .header-aura { animation: none; }
+    }
+
+    h1 {
+      font-size: 30px; margin: 0 0 4px; font-weight: 800; letter-spacing: -0.02em;
+    }
+    .grad-text {
+      background: linear-gradient(90deg, #f472b6, #a855f7 45%, #6366f1 75%, #38bdf8);
+      -webkit-background-clip: text; background-clip: text; color: transparent;
     }
     .tag {
-      margin: 0;
-      color: var(--muted);
-      max-width: 40rem;
-      line-height: 1.45;
+      margin: 0 auto; color: var(--text-muted); max-width: 44rem;
+      line-height: 1.5; font-size: 14px; font-weight: 500;
     }
-    main {
-      max-width: 1100px;
-      margin: 0 auto;
-      padding: 1.5rem;
-    }
+
     .toolbar {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 0.75rem;
-      align-items: end;
-      margin-bottom: 1.25rem;
+      display: flex; flex-wrap: wrap; gap: 12px; align-items: end;
+      justify-content: center; margin: 22px 0 20px;
     }
     label {
-      display: flex;
-      flex-direction: column;
-      gap: 0.3rem;
-      font-size: 0.8rem;
-      font-weight: 500;
-      color: var(--muted);
+      display: flex; flex-direction: column; gap: 0.35rem;
+      font-size: 11px; font-weight: 700; color: var(--text-faint);
+      text-transform: uppercase; letter-spacing: 0.05em;
     }
-    input, select, button {
-      font: inherit;
-      border: 1px solid var(--line);
-      border-radius: 6px;
-      padding: 0.55rem 0.75rem;
-      background: var(--panel);
-      color: var(--ink);
+    input, select {
+      font: inherit; font-size: 14px; font-weight: 500;
+      border: 1px solid var(--pill-border); border-radius: 999px;
+      padding: 9px 16px; background: var(--card-bg); color: var(--text);
+      box-shadow: 0 1px 2px var(--shadow);
     }
-    button {
-      background: var(--accent);
-      color: #fff;
-      border-color: var(--accent);
-      font-weight: 600;
-      cursor: pointer;
+    input:focus, select:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+    button.action {
+      font: inherit; font-size: 14px; font-weight: 700; cursor: pointer;
+      border-radius: 999px; padding: 10px 22px;
+      border: 1px solid var(--pill-border); background: var(--card-bg);
+      color: var(--text); box-shadow: 0 1px 2px var(--shadow); align-self: end;
     }
-    button.secondary { background: var(--panel); color: var(--ink); }
-    button:disabled { opacity: 0.55; cursor: wait; }
+    button.action:hover { filter: brightness(1.03); transform: translateY(-1px); }
+    button.action.primary {
+      background: linear-gradient(105deg, #0ea5e9 0%, #6366f1 55%, #a855f7 100%);
+      color: #fff; border: none; box-shadow: 0 3px 14px rgba(99,102,241,0.35);
+    }
+    button.action:disabled { opacity: 0.55; cursor: wait; transform: none; }
+
     .stats {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-      gap: 0.75rem;
-      margin-bottom: 1.5rem;
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      gap: 14px; margin-bottom: 18px;
     }
     .stat {
-      background: var(--panel);
-      border: 1px solid var(--line);
-      border-radius: 8px;
-      padding: 0.9rem 1rem;
+      background: var(--card-bg); border: 1px solid var(--card-border);
+      border-radius: 18px; padding: 16px 18px; box-shadow: 0 2px 14px var(--shadow);
     }
-    .stat .k { font-size: 0.75rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
-    .stat .v { font-family: "IBM Plex Serif", serif; font-size: 1.55rem; margin-top: 0.2rem; }
-    section h2 {
-      font-family: "IBM Plex Serif", serif;
-      font-size: 1.2rem;
-      margin: 0 0 0.75rem;
+    .stat .k {
+      font-size: 11px; color: var(--text-faint); text-transform: uppercase;
+      letter-spacing: 0.05em; font-weight: 700;
     }
-    .panel {
-      background: var(--panel);
-      border: 1px solid var(--line);
-      border-radius: 8px;
+    .stat .v { font-size: 1.8rem; margin-top: 0.25rem; font-weight: 800; letter-spacing: -0.02em; }
+
+    section { margin-bottom: 14px; }
+    h2 { font-size: 15px; margin: 0 0 10px; font-weight: 800; letter-spacing: -0.01em; }
+
+    .card {
+      background: var(--card-bg); border-radius: 18px; padding: 6px 4px;
+      box-shadow: 0 2px 14px var(--shadow); border: 1px solid var(--card-border);
       overflow: auto;
-      margin-bottom: 1.5rem;
     }
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      font-size: 0.92rem;
-    }
+    table { width: 100%; border-collapse: collapse; font-size: 0.92rem; }
     th, td {
-      text-align: left;
-      padding: 0.7rem 0.85rem;
-      border-bottom: 1px solid var(--line);
-      white-space: nowrap;
+      text-align: left; padding: 0.8rem 1rem;
+      border-bottom: 1px solid var(--divider); white-space: nowrap;
     }
     th {
-      font-size: 0.75rem;
-      text-transform: uppercase;
-      letter-spacing: 0.04em;
-      color: var(--muted);
-      background: #eef3ef;
+      font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.06em;
+      color: var(--text-faint); font-weight: 800; background: var(--metric-box-bg);
     }
-    tr:last-child td { border-bottom: 0; }
-    .pill {
-      display: inline-block;
-      padding: 0.15rem 0.5rem;
-      border-radius: 4px;
-      font-size: 0.78rem;
-      font-weight: 600;
+    tbody tr:last-child td { border-bottom: 0; }
+    tbody tr:hover td { background: var(--metric-box-bg); }
+    td b, .rep-name { font-weight: 700; }
+
+    .status-pill {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 4px 12px; border-radius: 999px;
+      font-size: 12px; font-weight: 700;
     }
-    .pill.effective { background: var(--good-bg); color: var(--good); }
-    .pill.poor { background: var(--bad-bg); color: var(--bad); }
-    .pill.pending, .pill.insufficient_data { background: var(--pending-bg); color: var(--pending); }
+    .status-pill.effective { background: var(--status-success-bg); color: var(--status-success); }
+    .status-pill.poor { background: var(--status-danger-bg); color: var(--status-danger); }
+    .status-pill.pending,
+    .status-pill.insufficient_data { background: var(--status-warning-bg); color: var(--status-warning); }
+
+    .delta.up { color: var(--status-success); font-weight: 700; }
+    .delta.down { color: var(--status-danger); font-weight: 700; }
+
     .meta {
-      color: var(--muted);
-      font-size: 0.85rem;
-      margin-bottom: 1rem;
+      display: inline-flex; align-items: center; gap: 6px;
+      background: var(--card-bg); border: 1px solid var(--pill-border);
+      border-radius: 999px; padding: 7px 16px; font-size: 12.5px;
+      color: var(--text-muted); box-shadow: 0 1px 2px var(--shadow);
+      margin-bottom: 18px; font-weight: 600;
     }
+    .meta b { color: var(--text); font-weight: 800; }
     .error {
-      background: var(--bad-bg);
-      color: var(--bad);
-      padding: 0.85rem 1rem;
-      border-radius: 8px;
-      margin-bottom: 1rem;
+      background: var(--status-danger-bg); color: var(--status-danger);
+      padding: 0.85rem 1.1rem; border-radius: 14px; margin-bottom: 16px;
+      font-weight: 600; border: 1px solid var(--status-danger);
     }
     @media (prefers-reduced-motion: no-preference) {
-      .stat, .panel { animation: rise 0.45s ease both; }
+      .stat, .card { animation: rise 0.45s ease both; }
       .stat:nth-child(2) { animation-delay: 0.05s; }
       .stat:nth-child(3) { animation-delay: 0.1s; }
       .stat:nth-child(4) { animation-delay: 0.15s; }
@@ -167,16 +226,20 @@
   </style>
 </head>
 <body>
-  <header>
-    <div class="wrap">
-      <p class="brand">pGC Coaching Bank</p>
+  <div class="wrap">
+    <div class="top-bar">
+      <button id="themeBtn" class="theme-btn" type="button">🌙 Dark</button>
+    </div>
+
+    <div class="title-row">
+      <div class="header-aura" aria-hidden="true"></div>
+      <h1><span class="grad-text">pGC Coaching Bank</span></h1>
       <p class="tag">
         Monitors coaching dates and scores effectivity from Looker pGC:
         L7 (7 days before) → N7 (7 days after). An increase means effective coaching.
       </p>
     </div>
-  </header>
-  <main>
+
     <div class="toolbar">
       <label>Coach
         <input id="coachFilter" placeholder="Filter coach" />
@@ -190,15 +253,18 @@
           <option value="insufficient_data">Insufficient data</option>
         </select>
       </label>
-      <button id="refreshBtn" type="button">Refresh</button>
-      <button id="syncBtn" class="secondary" type="button">Run sync</button>
+      <button id="refreshBtn" class="action" type="button">Refresh</button>
+      <button id="syncBtn" class="action primary" type="button">Run sync</button>
     </div>
+
     <p class="meta" id="meta">Loading…</p>
     <div id="error" class="error" hidden></div>
+
     <div class="stats" id="stats"></div>
+
     <section>
       <h2>Coach rollup</h2>
-      <div class="panel">
+      <div class="card">
         <table>
           <thead>
             <tr>
@@ -214,9 +280,10 @@
         </table>
       </div>
     </section>
+
     <section>
       <h2>Sessions</h2>
-      <div class="panel">
+      <div class="card">
         <table>
           <thead>
             <tr>
@@ -233,9 +300,30 @@
         </table>
       </div>
     </section>
-  </main>
+  </div>
+
   <script>
     const $ = (id) => document.getElementById(id);
+
+    // --- Theme toggle (matches a-team-pace-dashboard light/dark vibe) ---
+    function applyTheme(theme) {
+      const dark = theme === 'dark';
+      document.body.classList.toggle('dark', dark);
+      $('themeBtn').textContent = dark ? '☀️ Light' : '🌙 Dark';
+    }
+    (function initTheme() {
+      let saved = null;
+      try { saved = localStorage.getItem('pgc-theme'); } catch {}
+      if (!saved) {
+        saved = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+      }
+      applyTheme(saved);
+    })();
+    $('themeBtn').addEventListener('click', () => {
+      const next = document.body.classList.contains('dark') ? 'light' : 'dark';
+      applyTheme(next);
+      try { localStorage.setItem('pgc-theme', next); } catch {}
+    });
 
     function fmt(n, digits = 3) {
       if (n == null || Number.isNaN(n)) return '—';
@@ -246,7 +334,13 @@
       return (n * 100).toFixed(0) + '%';
     }
     function pill(verdict) {
-      return `<span class="pill ${verdict}">${verdict}</span>`;
+      return `<span class="status-pill ${verdict}">${verdict}</span>`;
+    }
+    function deltaCell(n) {
+      if (n == null || Number.isNaN(n)) return '—';
+      const cls = n > 0 ? 'up' : n < 0 ? 'down' : '';
+      const sign = n > 0 ? '+' : '';
+      return `<span class="delta ${cls}">${sign}${Number(n).toFixed(3)}</span>`;
     }
 
     async function loadResults() {
@@ -269,8 +363,8 @@
       const effective = scored.filter((s) => s.verdict === 'effective').length;
       const pending = sessions.filter((s) => s.verdict === 'pending').length;
 
-      $('meta').textContent =
-        `Last sync: ${data.lastSync || 'never'} · Mode: ${data.mode || '—'} · As of: ${data.asOf || '—'}`;
+      $('meta').innerHTML =
+        `Last sync: <b>${data.lastSync || 'never'}</b> · Mode: <b>${data.mode || '—'}</b> · As of: <b>${data.asOf || '—'}</b>`;
 
       $('stats').innerHTML = `
         <div class="stat"><div class="k">Sessions</div><div class="v">${sessions.length}</div></div>
@@ -282,12 +376,12 @@
       $('coachBody').innerHTML = coaches.length
         ? coaches.map((c) => `
           <tr>
-            <td>${c.coach}</td>
+            <td><b>${c.coach}</b></td>
             <td>${c.sessions}</td>
             <td>${c.effective}</td>
             <td>${c.poor}</td>
             <td>${pct(c.effectivityRate)}</td>
-            <td>${fmt(c.avgDelta)}</td>
+            <td>${deltaCell(c.avgDelta)}</td>
           </tr>`).join('')
         : `<tr><td colspan="6">No coach data yet — run sync.</td></tr>`;
 
@@ -295,11 +389,11 @@
         ? sessions.map((s) => `
           <tr>
             <td>${s.coachingDate}</td>
-            <td>${s.coachee || s.coacheeEmail}</td>
+            <td><b>${s.coachee || s.coacheeEmail}</b></td>
             <td>${s.coach || '—'}</td>
             <td>${fmt(s.l7)}</td>
             <td>${fmt(s.n7)}</td>
-            <td>${fmt(s.delta)}</td>
+            <td>${deltaCell(s.delta)}</td>
             <td>${pill(s.verdict)}</td>
           </tr>`).join('')
         : `<tr><td colspan="7">No sessions in the bank yet — run sync.</td></tr>`;
