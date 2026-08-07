@@ -39,6 +39,7 @@ export async function handler(event) {
       mode: bank.mode,
       meta: bank.meta,
       coaches: bank.coaches || [],
+      supergroups: bank.supergroups || [],
       sessions,
     });
   } catch (err) {

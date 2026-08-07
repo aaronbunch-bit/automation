@@ -103,8 +103,10 @@ export function scoreCoachingEvent(event, series, asOf = new Date()) {
     coachee: event.coachee || '',
     coacheeEmail: event.coacheeEmail || '',
     coach: event.coach || '',
+    supergroup: event.supergroup || '',
     coachingDate,
     sheetRow: event.sheetRow ?? null,
+    simulations: Array.isArray(event.simulations) ? event.simulations : [],
     l7Window: l7,
     n7Window: n7,
     n7Complete: ready,
@@ -173,4 +175,63 @@ export function summarizeByCoach(scored) {
       };
     })
     .sort((a, b) => (b.effectivityRate ?? -1) - (a.effectivityRate ?? -1));
+}
+
+/**
+ * Aggregate supergroup-level pGC for the Consumer Sales hierarchy.
+ * Overall L7 / N7 are the mean of scored reps' L7 / N7; delta = overall N7 − L7.
+ * Each rollup carries its reps so the UI can drill into individual sessions.
+ */
+export function summarizeBySupergroup(scored) {
+  const groups = new Map();
+  for (const row of scored) {
+    const key = row.supergroup || '(Unassigned)';
+    if (!groups.has(key)) {
+      groups.set(key, {
+        supergroup: key,
+        sessions: 0,
+        effective: 0,
+        poor: 0,
+        pending: 0,
+        insufficient_data: 0,
+        l7s: [],
+        n7s: [],
+        deltas: [],
+        reps: [],
+      });
+    }
+    const bucket = groups.get(key);
+    bucket.sessions += 1;
+    if (row.verdict === 'effective') bucket.effective += 1;
+    else if (row.verdict === 'poor') bucket.poor += 1;
+    else if (row.verdict === 'pending') bucket.pending += 1;
+    else bucket.insufficient_data += 1;
+    if (typeof row.l7 === 'number') bucket.l7s.push(row.l7);
+    if (typeof row.n7 === 'number') bucket.n7s.push(row.n7);
+    if (typeof row.delta === 'number') bucket.deltas.push(row.delta);
+    bucket.reps.push(row);
+  }
+
+  return [...groups.values()]
+    .map((b) => {
+      const scoredCount = b.effective + b.poor;
+      const l7 = b.l7s.length ? Number(mean(b.l7s).toFixed(6)) : null;
+      const n7 = b.n7s.length ? Number(mean(b.n7s).toFixed(6)) : null;
+      const delta =
+        l7 == null || n7 == null ? null : Number((n7 - l7).toFixed(6));
+      return {
+        supergroup: b.supergroup,
+        sessions: b.sessions,
+        effective: b.effective,
+        poor: b.poor,
+        pending: b.pending,
+        insufficient_data: b.insufficient_data,
+        l7,
+        n7,
+        delta,
+        effectivityRate: scoredCount ? b.effective / scoredCount : null,
+        reps: b.reps,
+      };
+    })
+    .sort((a, b) => a.supergroup.localeCompare(b.supergroup));
 }

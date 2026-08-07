@@ -34,6 +34,7 @@ export function loadConfig() {
         coachee: env('SHEET_COL_COACHEE', 'Coachee'),
         coacheeEmail: env('SHEET_COL_COACHEE_EMAIL', 'Coachee Email'),
         coach: env('SHEET_COL_COACH', 'Coach'),
+        supergroup: env('SHEET_COL_SUPERGROUP', 'Supergroup'),
         coachingDate: env('SHEET_COL_COACHING_DATE', 'Coaching Date'),
         l7: env('SHEET_COL_L7', 'pGC L7'),
         n7: env('SHEET_COL_N7', 'pGC N7'),

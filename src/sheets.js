@@ -64,6 +64,7 @@ export async function readCoachingEvents(sheets, sheetConfig) {
   const coacheeIdx = findColumnIndex(headers, cols.coachee);
   const emailIdx = findColumnIndex(headers, cols.coacheeEmail);
   const coachIdx = findColumnIndex(headers, cols.coach);
+  const supergroupIdx = findColumnIndex(headers, cols.supergroup);
   const dateIdx = findColumnIndex(headers, cols.coachingDate);
 
   if (dateIdx < 0) {
@@ -87,12 +88,15 @@ export async function readCoachingEvents(sheets, sheetConfig) {
     const coachee = coacheeIdx >= 0 ? String(row[coacheeIdx] ?? '').trim() : '';
     const coacheeEmail = emailIdx >= 0 ? String(row[emailIdx] ?? '').trim() : '';
     const coach = coachIdx >= 0 ? String(row[coachIdx] ?? '').trim() : '';
+    const supergroup =
+      supergroupIdx >= 0 ? String(row[supergroupIdx] ?? '').trim() : '';
     if (!coachee && !coacheeEmail) continue;
     events.push({
       id: `${coacheeEmail || coachee}|${coachingDate}|${i + 1}`,
       coachee,
       coacheeEmail,
       coach,
+      supergroup,
       coachingDate,
       sheetRow: i + 1,
     });
