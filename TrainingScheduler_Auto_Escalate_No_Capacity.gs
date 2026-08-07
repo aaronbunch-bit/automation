@@ -24,13 +24,13 @@
 function tsAutoEscalateNoCapacity_(need, diag, config) {
   config = config || tsLoadConfig_();
 
-  if (tsConsultantAlreadyBooked_(need.email, need.salesGroup)) {
-    tsAudit_('AUTO_ESCALATE_NO_CAPACITY', need.email, 'Already booked — no escalation created', 'INFO');
+  if (tsConsultantAlreadyBooked_(need)) {
+    tsAudit_('AUTO_ESCALATE_NO_CAPACITY', need.email, 'Already booked for matching sim/week — no escalation created', 'INFO');
     return;
   }
 
-  if (tsHasEscalatedOffer_(need.email, need.salesGroup)) {
-    tsAudit_('AUTO_ESCALATE_NO_CAPACITY', need.email, 'Already escalated — no duplicate escalation created', 'INFO');
+  if (tsHasEscalatedOffer_(need.email, need.salesGroup, need)) {
+    tsAudit_('AUTO_ESCALATE_NO_CAPACITY', need.email, 'Already escalated for matching sim/week — no duplicate escalation created', 'INFO');
     return;
   }
 
@@ -42,6 +42,9 @@ function tsAutoEscalateNoCapacity_(need, diag, config) {
   offerSheet.getRange(offerRow, TS.OFFER_COLS.STATUS).setValue('ESCALATED');
   offerSheet.getRange(offerRow, TS.OFFER_COLS.OFFER_SENT_AT).setValue(now);
   offerSheet.getRange(offerRow, TS.OFFER_COLS.REMINDER_SENT_AT).setValue(now);
+  if (need.weekStart) {
+    offerSheet.getRange(offerRow, TS.OFFER_COLS.BOOKED_WINDOW).setValue(need.weekStart + ' no capacity');
+  }
   SpreadsheetApp.flush();
 
   tsNotifyRepNoCapacity_(need);
@@ -51,15 +54,21 @@ function tsAutoEscalateNoCapacity_(need, diag, config) {
   tsRefreshAnalyticsSafe_();
 }
 
-function tsHasEscalatedOffer_(email, salesGroup) {
+function tsHasEscalatedOffer_(email, salesGroup, need) {
   var sheet = tsGetSpreadsheet_().getSheetByName(TS.SHEETS.OFFERS);
   if (!sheet || sheet.getLastRow() <= 1) return false;
 
-  var targetEmail = String(email || '').trim().toLowerCase();
-  var targetGroup = String(salesGroup || '').trim().toLowerCase();
+  var targetNeed = typeof tsNormalizeOfferNeed_ === 'function'
+    ? tsNormalizeOfferNeed_(need || email, salesGroup)
+    : { email: email, salesGroup: salesGroup, sims: [] };
+  var targetEmail = String(targetNeed.email || '').trim().toLowerCase();
+  var targetGroup = String(targetNeed.salesGroup || '').trim().toLowerCase();
   var activeColumn = typeof tsGetOfferActiveColumn_ === 'function'
     ? tsGetOfferActiveColumn_(sheet)
     : 0;
+  var cutoff = typeof tsGetOfferIgnoreBeforeDate_ === 'function'
+    ? tsGetOfferIgnoreBeforeDate_()
+    : null;
   var values = sheet.getDataRange().getValues();
 
   for (var i = 1; i < values.length; i++) {
@@ -70,7 +79,10 @@ function tsHasEscalatedOffer_(email, salesGroup) {
 
     if (rowEmail !== targetEmail || rowGroup !== targetGroup) continue;
     if (activeColumn && typeof tsOfferRowIsInactive_ === 'function' && tsOfferRowIsInactive_(row, activeColumn)) continue;
-    if (status === 'ESCALATED') return true;
+    if (cutoff && typeof tsDateIsBeforeCutoff_ === 'function' && tsDateIsBeforeCutoff_(row[TS.OFFER_COLS.CREATED_AT - 1], cutoff)) continue;
+    if (status !== 'ESCALATED') continue;
+    if (typeof tsOfferRowMatchesTrainingNeed_ === 'function' && !tsOfferRowMatchesTrainingNeed_(row, targetNeed)) continue;
+    return true;
   }
 
   return false;

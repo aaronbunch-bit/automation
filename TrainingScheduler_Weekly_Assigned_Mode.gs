@@ -110,6 +110,12 @@ function runWeeklyAssignedScheduling_(testMode) {
     try {
       if (tsWeeklyAlreadyScheduled_(need)) {
         skippedAlreadyScheduled++;
+        tsAudit_(
+          'WEEKLY_ASSIGNED',
+          need.email,
+          'Already scheduled for ' + (need.sims || []).join(', ') + ' in week ' + need.weekStart + ' — skip',
+          'INFO'
+        );
         return;
       }
 
@@ -304,28 +310,51 @@ function tsWeeklyAlreadyScheduled_(need) {
   var values = sheet.getDataRange().getValues();
   var targetEmail = String(need.email || '').trim().toLowerCase();
   var targetGroup = String(need.salesGroup || '').trim().toLowerCase();
-  var targetSim = String((need.sims || [])[0] || '').trim().toLowerCase();
-  var weekStart = tsBuildDateTime_(need.weekStart, '00:00');
-  var weekEnd = weekStart ? new Date(weekStart.getTime() + 7 * 24 * 60 * 60 * 1000) : null;
+  var activeColumn = typeof tsGetOfferActiveColumn_ === 'function'
+    ? tsGetOfferActiveColumn_(sheet)
+    : 0;
+  var cutoff = typeof tsGetOfferIgnoreBeforeDate_ === 'function'
+    ? tsGetOfferIgnoreBeforeDate_()
+    : null;
 
   for (var i = 1; i < values.length; i++) {
     var row = values[i];
     var email = String(row[TS.OFFER_COLS.CONSULTANT_EMAIL - 1] || '').trim().toLowerCase();
     var salesGroup = String(row[TS.OFFER_COLS.SALES_GROUP - 1] || '').trim().toLowerCase();
-    var simsCsv = String(row[TS.OFFER_COLS.SIMS_CSV - 1] || '').trim().toLowerCase();
     var status = String(row[TS.OFFER_COLS.STATUS - 1] || '').trim().toUpperCase();
 
     if (email !== targetEmail || salesGroup !== targetGroup) continue;
     if (status !== 'BOOKED') continue;
-    if (simsCsv !== targetSim) continue;
-    if (!weekStart || !weekEnd) return true;
-
-    var bookedWindow = String(row[TS.OFFER_COLS.BOOKED_WINDOW - 1] || '').trim();
-    var bookedDate = tsBuildDateTime_(bookedWindow.substring(0, 10), '00:00');
-    if (bookedDate && bookedDate >= weekStart && bookedDate < weekEnd) return true;
+    if (activeColumn && typeof tsOfferRowIsInactive_ === 'function' && tsOfferRowIsInactive_(row, activeColumn)) continue;
+    if (cutoff && typeof tsDateIsBeforeCutoff_ === 'function' && tsDateIsBeforeCutoff_(row[TS.OFFER_COLS.CREATED_AT - 1], cutoff)) continue;
+    if (typeof tsOfferRowMatchesTrainingNeed_ === 'function') {
+      if (tsOfferRowMatchesTrainingNeed_(row, need)) return true;
+      continue;
+    }
+    if (tsWeeklyOfferRowMatchesNeed_(row, need)) return true;
   }
 
   return false;
+}
+
+function tsWeeklyOfferRowMatchesNeed_(row, need) {
+  var rowSims = String(row[TS.OFFER_COLS.SIMS_CSV - 1] || '')
+    .split(',')
+    .map(function(sim) { return String(sim || '').trim().toLowerCase(); })
+    .filter(Boolean);
+  var targetSims = (need.sims || [])
+    .map(function(sim) { return String(sim || '').trim().toLowerCase(); })
+    .filter(Boolean);
+
+  if (!targetSims.some(function(sim) { return rowSims.indexOf(sim) !== -1; })) return false;
+
+  var weekStart = tsBuildDateTime_(need.weekStart, '00:00');
+  if (!weekStart) return true;
+  var weekEnd = new Date(weekStart.getTime() + 7 * 24 * 60 * 60 * 1000);
+  var bookedWindow = String(row[TS.OFFER_COLS.BOOKED_WINDOW - 1] || '').trim();
+  var bookedDate = tsBuildDateTime_(bookedWindow.substring(0, 10), '00:00');
+
+  return !!bookedDate && bookedDate >= weekStart && bookedDate < weekEnd;
 }
 
 function tsBookWeeklyAssignedWindow_(headers, need, window) {

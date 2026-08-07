@@ -132,19 +132,22 @@ function expireoldpendingoffers() {
  * - Any active pending offer/token could block new offers.
  *
  * New behavior:
- * - Active BOOKED and ESCALATED rows still block.
+ * - Active BOOKED and ESCALATED rows block only when they match the current
+ *   training need. A booked sim from a prior/current month should not block a
+ *   different weekly assignment for the same rep.
  * - Inactive rows do not block, regardless of original Status.
  * - STALE/CANCELLED/EXPIRED/SUPERSEDED rows do not block.
  * - Rows before OFFER_IGNORE_BEFORE_DATE do not block.
  * - Still-valid pending tokens after the cutoff do block.
  */
-function tsHasActivePendingOffer_(email, salesGroup) {
+function tsHasActivePendingOffer_(email, salesGroup, need) {
   var sheet = tsGetSpreadsheet_().getSheetByName(TS.SHEETS.OFFERS);
   if (!sheet || sheet.getLastRow() <= 1) return false;
 
   var activeColumn = tsGetOfferActiveColumn_(sheet);
-  var targetEmail = String(email || '').trim().toLowerCase();
-  var targetGroup = String(salesGroup || '').trim().toLowerCase();
+  var targetNeed = tsNormalizeOfferNeed_(need || email, salesGroup);
+  var targetEmail = String(targetNeed.email || '').trim().toLowerCase();
+  var targetGroup = String(targetNeed.salesGroup || '').trim().toLowerCase();
   var cutoff = tsGetOfferIgnoreBeforeDate_();
   var values = sheet.getDataRange().getValues();
 
@@ -159,9 +162,13 @@ function tsHasActivePendingOffer_(email, salesGroup) {
     if (activeColumn && tsOfferRowIsInactive_(row, activeColumn)) continue;
     if (cutoff && tsDateIsBeforeCutoff_(createdAt, cutoff)) continue;
 
-    if (status === 'BOOKED' || status === 'ESCALATED') return true;
+    if (status === 'BOOKED' || status === 'ESCALATED') {
+      if (tsOfferRowMatchesTrainingNeed_(row, targetNeed)) return true;
+      continue;
+    }
     if (status === 'STALE' || status === 'CANCELLED' || status === 'EXPIRED' || status === 'SUPERSEDED') continue;
     if (status !== 'OFFERED' && status !== 'PENDING') continue;
+    if (!tsOfferRowMatchesTrainingNeed_(row, targetNeed)) continue;
 
     var tokenIds = String(row[TS.OFFER_COLS.TOKEN_IDS - 1] || '')
       .split(',')
@@ -187,6 +194,115 @@ function tsHasActivePendingOffer_(email, salesGroup) {
   }
 
   return false;
+}
+
+function tsConsultantAlreadyBooked_(emailOrNeed, salesGroup) {
+  var sheet = tsGetSpreadsheet_().getSheetByName(TS.SHEETS.OFFERS);
+  if (!sheet || sheet.getLastRow() <= 1) return false;
+
+  var activeColumn = tsGetOfferActiveColumn_(sheet);
+  var targetNeed = tsNormalizeOfferNeed_(emailOrNeed, salesGroup);
+  var targetEmail = String(targetNeed.email || '').trim().toLowerCase();
+  var targetGroup = String(targetNeed.salesGroup || '').trim().toLowerCase();
+  var cutoff = tsGetOfferIgnoreBeforeDate_();
+  var values = sheet.getDataRange().getValues();
+
+  for (var i = 1; i < values.length; i++) {
+    var row = values[i];
+    var rowEmail = String(row[TS.OFFER_COLS.CONSULTANT_EMAIL - 1] || '').trim().toLowerCase();
+    var rowGroup = String(row[TS.OFFER_COLS.SALES_GROUP - 1] || '').trim().toLowerCase();
+    var status = String(row[TS.OFFER_COLS.STATUS - 1] || '').trim().toUpperCase();
+    var createdAt = row[TS.OFFER_COLS.CREATED_AT - 1];
+
+    if (rowEmail !== targetEmail || rowGroup !== targetGroup) continue;
+    if (status !== 'BOOKED') continue;
+    if (activeColumn && tsOfferRowIsInactive_(row, activeColumn)) continue;
+    if (cutoff && tsDateIsBeforeCutoff_(createdAt, cutoff)) continue;
+    if (tsOfferRowMatchesTrainingNeed_(row, targetNeed)) return true;
+  }
+
+  return false;
+}
+
+function tsNormalizeOfferNeed_(emailOrNeed, salesGroup) {
+  if (emailOrNeed && typeof emailOrNeed === 'object') {
+    return emailOrNeed;
+  }
+
+  return {
+    email: emailOrNeed,
+    salesGroup: salesGroup,
+    sims: []
+  };
+}
+
+function tsOfferRowMatchesTrainingNeed_(row, need) {
+  var targetSims = tsNormalizeSimList_(need && need.sims);
+  if (targetSims.length) {
+    var rowSims = tsNormalizeSimList_(row[TS.OFFER_COLS.SIMS_CSV - 1]);
+    if (!tsSimListsOverlap_(rowSims, targetSims)) return false;
+  }
+
+  if (need && need.weekStart) {
+    var bookedWindow = String(row[TS.OFFER_COLS.BOOKED_WINDOW - 1] || '').trim();
+    if (!bookedWindow) return true;
+    return tsOfferBookedWindowIsInNeedWeek_(row, need.weekStart);
+  }
+
+  return true;
+}
+
+function tsNormalizeSimList_(value) {
+  var list = Array.isArray(value)
+    ? value
+    : String(value || '').split(',');
+
+  return list
+    .map(function(sim) { return String(sim || '').trim().toLowerCase(); })
+    .filter(Boolean);
+}
+
+function tsSimListsOverlap_(left, right) {
+  var seen = {};
+  left.forEach(function(value) {
+    seen[value] = true;
+  });
+
+  return right.some(function(value) {
+    return !!seen[value];
+  });
+}
+
+function tsOfferBookedWindowIsInNeedWeek_(row, weekStartValue) {
+  var weekStart = tsBuildDateTime_(tsOfferDateKey_(weekStartValue), '00:00');
+  if (!weekStart) return true;
+
+  var weekEnd = new Date(weekStart.getTime() + 7 * 24 * 60 * 60 * 1000);
+  var bookedWindow = String(row[TS.OFFER_COLS.BOOKED_WINDOW - 1] || '').trim();
+  var bookedDateText = bookedWindow.substring(0, 10);
+  var bookedDate = tsBuildDateTime_(bookedDateText, '00:00');
+
+  if (!bookedDate) return false;
+  return bookedDate >= weekStart && bookedDate < weekEnd;
+}
+
+function tsOfferDateKey_(value) {
+  if (typeof tsWeeklyDateKey_ === 'function') {
+    return tsWeeklyDateKey_(value);
+  }
+
+  if (value instanceof Date && !isNaN(value.getTime())) {
+    return Utilities.formatDate(value, TS.TZ, 'yyyy-MM-dd');
+  }
+
+  var raw = String(value || '').trim();
+  if (!raw) return '';
+  var parsed = new Date(raw);
+  if (!isNaN(parsed.getTime())) {
+    return Utilities.formatDate(parsed, TS.TZ, 'yyyy-MM-dd');
+  }
+
+  return raw.substring(0, 10);
 }
 
 function tsGetOfferIgnoreBeforeDate_() {

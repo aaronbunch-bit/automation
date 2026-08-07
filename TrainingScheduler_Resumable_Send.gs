@@ -195,18 +195,20 @@ function tsClearResumeBatchState_() {
 function tsResumeNeedKey_(need) {
   return [
     String(need.email || '').trim().toLowerCase(),
-    String(need.salesGroup || '').trim().toLowerCase()
+    String(need.salesGroup || '').trim().toLowerCase(),
+    (need.sims || []).map(function(sim) { return String(sim || '').trim().toLowerCase(); }).join(','),
+    String(need.weekStart || '').trim()
   ].join('|');
 }
 
 function tsProcessSingleTrainingNeedForResume_(need, processingContext) {
-  if (tsConsultantAlreadyBooked_(need.email, need.salesGroup)) {
-    tsAudit_('SEND_IT_RESUME', tsResumeNeedKey_(need), 'Already booked — skip', 'INFO');
+  if (tsConsultantAlreadyBooked_(need)) {
+    tsAudit_('SEND_IT_RESUME', tsResumeNeedKey_(need), 'Already booked for matching sim/week — skip', 'INFO');
     return;
   }
 
-  if (tsHasActivePendingOffer_(need.email, need.salesGroup)) {
-    tsAudit_('SEND_IT_RESUME', tsResumeNeedKey_(need), 'Active pending offer/tokens — skip', 'INFO');
+  if (tsHasActivePendingOffer_(need.email, need.salesGroup, need)) {
+    tsAudit_('SEND_IT_RESUME', tsResumeNeedKey_(need), 'Active matching pending offer/tokens — skip', 'INFO');
     return;
   }
 
