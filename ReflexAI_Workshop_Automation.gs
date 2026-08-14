@@ -405,8 +405,8 @@ function sendManagerEmailBatches_(testMode) {
   assignedRows = buildPeakCadenceEmailRows_(spreadsheet, csvRows, managerRoster, runSettings);
   if (!assignedRows.length) {
     SpreadsheetApp.getUi().alert(
-      'No booked peak-cadence assignments found.\n\n' +
-      'Manager emails now report only TS Offers rows with Status = BOOKED for the current/prior Weekly Sim Schedule weeks.'
+      'No peak-cadence assignments found.\n\n' +
+      'Manager emails now report TS Offers rows with Status = BOOKED or ESCALATED for the current/prior Weekly Sim Schedule weeks.'
     );
     return;
   }
@@ -498,7 +498,7 @@ function sendManagerEmailBatches_(testMode) {
     var emailOptions = {
       to: recipients,
       cc: ccRecipients,
-      subject: (testMode ? '[TEST] ' : '') + getCurrentMonthName_() + ' ReflexAI Weekly Simulation Follow-Up',
+      subject: (testMode ? '[TEST] ' : '') + getCurrentMonthName_() + ' ReflexAI Simulation Follow-Up',
       body: buildManagerEmailBody_(batch.managerName, batch.allRows, testMode, managerEmail, intendedCcRecipients),
       htmlBody: buildManagerEmailHtml_(batch.managerName, batch.allRows, testMode, managerEmail, batch.metrics, intendedCcRecipients, takeRate, takeRateChartCid)
     };
@@ -586,8 +586,8 @@ function sendSeniorLeadershipRecaps_(testMode) {
   var assignedRows = buildPeakCadenceEmailRows_(spreadsheet, csvRows, managerRoster, runSettings);
   if (!assignedRows.length) {
     SpreadsheetApp.getUi().alert(
-      'No booked peak-cadence assignments found.\n\n' +
-      'Senior leader emails now report only TS Offers rows with Status = BOOKED for the current/prior Weekly Sim Schedule weeks.'
+      'No peak-cadence assignments found.\n\n' +
+      'Senior leader emails now report TS Offers rows with Status = BOOKED or ESCALATED for the current/prior Weekly Sim Schedule weeks.'
     );
     return;
   }
@@ -756,6 +756,7 @@ function getSeniorLeaderRecipients_(spreadsheet) {
 function buildPeakCadenceEmailRows_(spreadsheet, csvRows, managerRoster, runSettings) {
   var scheduleIndex = buildWeeklyAssignmentScheduleIndex_(spreadsheet);
   var csvLookup = buildCsvRowsLookup_(csvRows);
+  var removalLookup = buildRemovedRepLookup_(spreadsheet);
   var offerRows = readSheetRows_(spreadsheet, 'TS Offers');
   var rows = [];
   var seen = {};
@@ -765,7 +766,8 @@ function buildPeakCadenceEmailRows_(spreadsheet, csvRows, managerRoster, runSett
 
   offerRows.forEach(function(offerRow) {
     var status = String(getValue_(offerRow, 'Status') || '').trim().toUpperCase();
-    if (status !== 'BOOKED') return;
+    var isEscalated = status === 'ESCALATED';
+    if (status !== 'BOOKED' && !isEscalated) return;
     if (tsOfferRowInactiveForEmail_(offerRow)) return;
 
     var repEmail = String(getFirstNonBlankValue_(offerRow, [
@@ -783,6 +785,8 @@ function buildPeakCadenceEmailRows_(spreadsheet, csvRows, managerRoster, runSett
       'Rep',
       'User Name'
     ]) || '';
+    if (isRemovedRepForEmail_(removalLookup, repEmail, repName)) return;
+
     var salesGroup = getValue_(offerRow, 'Sales Group') || '';
     var managerNameFromOffer = getValue_(offerRow, 'Manager') || getValue_(offerRow, 'Manager Name') || '';
     var sims = String(getValue_(offerRow, 'Sims') || getValue_(offerRow, 'Sims CSV') || '')
@@ -790,7 +794,8 @@ function buildPeakCadenceEmailRows_(spreadsheet, csvRows, managerRoster, runSett
       .map(function(value) { return value.trim(); })
       .filter(Boolean);
     var bookedWindow = getValue_(offerRow, 'Booked Window');
-    var bookedStart = parseBookedWindowStart_(bookedWindow);
+    var createdAt = getValue_(offerRow, 'Created At') || getValue_(offerRow, 'Offer Sent At');
+    var bookedStart = parseBookedWindowStart_(bookedWindow) || parsePeakDate_(createdAt);
 
     sims.forEach(function(simName) {
       var assignment = findWeeklyAssignmentForOffer_(scheduleIndex, salesGroup, simName, bookedStart);
@@ -812,7 +817,8 @@ function buildPeakCadenceEmailRows_(spreadsheet, csvRows, managerRoster, runSett
       var csvRow = findCsvRowForAssignedSim_(getCsvCandidatesForOffer_(csvLookup, repEmail, repName), simName);
       var csvStatus = csvRow ? getValue_(csvRow, 'Status') : 'Not Started';
       var score = csvRow ? parseScore_(getValue_(csvRow, 'Best Score (%)')) : NaN;
-      var category = classifySimulationOutcome_(csvStatus, score);
+      var displayStatus = isEscalated && !isCompletedStatus_(csvStatus) ? 'Escalated' : csvStatus;
+      var category = classifySimulationOutcome_(displayStatus, score);
       var csvRepName = csvRow ? getValue_(csvRow, 'User Name') : '';
       var csvJourneyName = csvRow ? getJourneyNameForRow_(csvRow, runSettings || {}) : '';
       var managerInfo = getManagerInfoForRep_(managerRoster, repEmail, csvRepName || repName);
@@ -836,12 +842,13 @@ function buildPeakCadenceEmailRows_(spreadsheet, csvRows, managerRoster, runSett
         dueWeekStart: dueWeekStart,
         dueWeekLabel: formatWeekLabel_(dueWeekStart),
         dateAssigned: bookedStart,
-        dateAssignedLabel: formatAssignedDate_(bookedStart, bookedWindow),
-        status: csvStatus || 'Not Started',
+        dateAssignedLabel: (isEscalated ? 'Escalated ' : '') + formatAssignedDate_(bookedStart, bookedWindow || createdAt),
+        status: displayStatus || 'Not Started',
         score: isNaN(score) ? '' : score / 100,
         scorePercent: score,
         category: category,
-        overdue: !!(bookedStart && bookedStart.getTime() < now.getTime() && !isCompletedStatus_(csvStatus))
+        escalated: isEscalated,
+        overdue: !!(!isEscalated && bookedStart && bookedStart.getTime() < now.getTime() && !isCompletedStatus_(csvStatus))
       });
     });
   });
@@ -1036,7 +1043,7 @@ function formatWeekLabel_(dateValue) {
 
 function formatAssignedDate_(dateValue, fallback) {
   if (!dateValue || isNaN(dateValue.getTime())) return String(fallback || '').trim();
-  return Utilities.formatDate(dateValue, getEmailTimeZone_(), 'MMM d, yyyy h:mm a');
+  return Utilities.formatDate(dateValue, getEmailTimeZone_(), 'MMM d, h:mm a');
 }
 
 function getEmailTimeZone_() {
@@ -1049,6 +1056,13 @@ function isCompletedStatus_(status) {
 
 function isBlockedManagerForReporting_(managerName, managerEmail) {
   return isJohnRiordanName_(managerName) || isBlockedJohnRiordanEmail_(managerEmail);
+}
+
+function isRemovedRepForEmail_(removalLookup, email, name) {
+  if (!removalLookup || !removalLookup.hasEntries) return false;
+  var normalizedEmail = String(email || '').toLowerCase().trim();
+  var normalizedName = normalizePersonKey_(name);
+  return !!((normalizedEmail && removalLookup.emails[normalizedEmail]) || (normalizedName && removalLookup.names[normalizedName]));
 }
 
 function buildOfferTakeRateForManager_(spreadsheet, managerName) {
@@ -1092,8 +1106,14 @@ function applyOpenOfferCountsToMetricRows_(rows, takeRate, nameProperty) {
 }
 
 function buildOfferTakeRate_(spreadsheet, predicate) {
+  var removalLookup = buildRemovedRepLookup_(spreadsheet);
   var rows = readSheetRows_(spreadsheet, 'TS Offers').filter(function(row) {
     return !tsOfferRowInactiveForEmail_(row) &&
+      !isRemovedRepForEmail_(
+        removalLookup,
+        getFirstNonBlankValue_(row, ['Consultant Email', 'Email', 'Representative Email', 'Rep Email', 'User Email']),
+        getFirstNonBlankValue_(row, ['Consultant', 'Consultant Name', 'Representative', 'Representative Name', 'Rep', 'User Name'])
+      ) &&
       !isBlockedManagerForReporting_(getValue_(row, 'Manager') || getValue_(row, 'Manager Name'), '') &&
       predicate(row);
   });
@@ -1259,8 +1279,8 @@ function sendDirectorEmail_(recipients, testMode) {
   var assignedRows = buildPeakCadenceEmailRows_(spreadsheet, csvRows, managerRoster, runSettings);
   if (!assignedRows.length) {
     SpreadsheetApp.getUi().alert(
-      'No booked peak-cadence assignments found.\n\n' +
-      'Director emails now report only TS Offers rows with Status = BOOKED for the current/prior Weekly Sim Schedule weeks.'
+      'No peak-cadence assignments found.\n\n' +
+      'Director emails now report TS Offers rows with Status = BOOKED or ESCALATED for the current/prior Weekly Sim Schedule weeks.'
     );
     return;
   }
@@ -2862,7 +2882,7 @@ function buildManagerEmailHtml_(managerName, rows, testMode, intendedManagerEmai
     introCard_('Thank you.', 'Please use this report to prioritize coaching and completion follow-up.');
 
   return emailShell_(
-    getCurrentMonthName_() + ' ReflexAI Weekly Simulation Follow-Up',
+    getCurrentMonthName_() + ' ReflexAI Simulation Follow-Up',
     EMAIL_SUBTITLE,
     bodyHtml
   );
@@ -3004,9 +3024,10 @@ function dateAssignedCell_(item) {
     return '<td>' + escapeHtml_(label) + '</td>';
   }
 
-  return '<td><span style="display:inline-block;border-radius:999px;background:#fff1f2;color:#b91c1c;border:1px solid #fecdd3;font-weight:900;font-size:12px;padding:5px 9px;white-space:nowrap;">' +
-    escapeHtml_(label + ' - overdue') +
-    '</span></td>';
+  return '<td>' +
+    '<span style="display:block;white-space:nowrap;">' + escapeHtml_(label) + '</span>' +
+    '<span style="display:inline-block;margin-top:4px;border-radius:999px;background:#fff1f2;color:#b91c1c;border:1px solid #fecdd3;font-weight:900;font-size:11px;padding:3px 7px;white-space:nowrap;">Overdue</span>' +
+    '</td>';
 }
 
 function statusBadge_(status, tone) {
@@ -3024,6 +3045,9 @@ function statusBadge_(status, tone) {
   } else if (normalized.indexOf('completed') !== -1) {
     color = '#245bc5';
     background = '#eef5ff';
+  } else if (normalized.indexOf('escalated') !== -1) {
+    color = '#9a6a00';
+    background = '#fff8df';
   } else if (normalized.indexOf('not') !== -1 || normalized.indexOf('progress') !== -1 || normalized.indexOf('started') !== -1) {
     color = '#b91c85';
     background = '#fff0fb';
