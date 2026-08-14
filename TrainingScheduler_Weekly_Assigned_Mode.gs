@@ -588,10 +588,6 @@ function tsWeeklyAlreadyScheduled_(need) {
     if (status !== 'BOOKED') continue;
     if (activeColumn && typeof tsOfferRowIsInactive_ === 'function' && tsOfferRowIsInactive_(row, activeColumn)) continue;
     if (cutoff && typeof tsDateIsBeforeCutoff_ === 'function' && tsDateIsBeforeCutoff_(row[TS.OFFER_COLS.CREATED_AT - 1], cutoff)) continue;
-    if (typeof tsOfferRowMatchesTrainingNeed_ === 'function') {
-      if (tsOfferRowMatchesTrainingNeed_(row, need)) return true;
-      continue;
-    }
     if (tsWeeklyOfferRowMatchesNeed_(row, need)) return true;
   }
 
@@ -607,10 +603,15 @@ function tsWeeklyOfferRowMatchesNeed_(row, need) {
     .map(function(sim) { return String(sim || '').trim().toLowerCase(); })
     .filter(Boolean);
 
-  if (!targetSims.some(function(sim) { return rowSims.indexOf(sim) !== -1; })) return false;
+  var matchesAssignedSim = targetSims.some(function(sim) {
+    return rowSims.some(function(rowSim) {
+      return rowSim === sim || tsWeeklySimulationMatches_(sim, [rowSim]);
+    });
+  });
+  if (!matchesAssignedSim) return false;
 
   var weekStart = tsBuildDateTime_(need.weekStart, '00:00');
-  if (!weekStart) return true;
+  if (!weekStart) return false;
   var weekEnd = new Date(weekStart.getTime() + 7 * 24 * 60 * 60 * 1000);
   var bookedWindow = String(row[TS.OFFER_COLS.BOOKED_WINDOW - 1] || '').trim();
   var bookedDate = tsBuildDateTime_(bookedWindow.substring(0, 10), '00:00');
