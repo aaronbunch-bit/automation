@@ -755,7 +755,7 @@ function getSeniorLeaderRecipients_(spreadsheet) {
 
 function buildPeakCadenceEmailRows_(spreadsheet, csvRows, managerRoster, runSettings) {
   var scheduleIndex = buildWeeklyAssignmentScheduleIndex_(spreadsheet);
-  var csvLookup = buildCsvRowsByEmail_(csvRows);
+  var csvLookup = buildCsvRowsLookup_(csvRows);
   var offerRows = readSheetRows_(spreadsheet, 'TS Offers');
   var rows = [];
   var seen = {};
@@ -768,8 +768,21 @@ function buildPeakCadenceEmailRows_(spreadsheet, csvRows, managerRoster, runSett
     if (status !== 'BOOKED') return;
     if (tsOfferRowInactiveForEmail_(offerRow)) return;
 
-    var repEmail = String(getValue_(offerRow, 'Consultant Email') || '').toLowerCase().trim();
-    var repName = getValue_(offerRow, 'Consultant') || getValue_(offerRow, 'Consultant Name') || '';
+    var repEmail = String(getFirstNonBlankValue_(offerRow, [
+      'Consultant Email',
+      'Email',
+      'Representative Email',
+      'Rep Email',
+      'User Email'
+    ]) || '').toLowerCase().trim();
+    var repName = getFirstNonBlankValue_(offerRow, [
+      'Consultant',
+      'Consultant Name',
+      'Representative',
+      'Representative Name',
+      'Rep',
+      'User Name'
+    ]) || '';
     var salesGroup = getValue_(offerRow, 'Sales Group') || '';
     var managerNameFromOffer = getValue_(offerRow, 'Manager') || getValue_(offerRow, 'Manager Name') || '';
     var sims = String(getValue_(offerRow, 'Sims') || getValue_(offerRow, 'Sims CSV') || '')
@@ -796,7 +809,7 @@ function buildPeakCadenceEmailRows_(spreadsheet, csvRows, managerRoster, runSett
       if (seen[dedupeKey]) return;
       seen[dedupeKey] = true;
 
-      var csvRow = findCsvRowForAssignedSim_(csvLookup[repEmail] || [], simName);
+      var csvRow = findCsvRowForAssignedSim_(getCsvCandidatesForOffer_(csvLookup, repEmail, repName), simName);
       var csvStatus = csvRow ? getValue_(csvRow, 'Status') : 'Not Started';
       var score = csvRow ? parseScore_(getValue_(csvRow, 'Best Score (%)')) : NaN;
       var category = classifySimulationOutcome_(csvStatus, score);
@@ -886,15 +899,49 @@ function findWeeklyAssignmentForOffer_(scheduleIndex, salesGroup, simName, booke
   return candidates[0];
 }
 
-function buildCsvRowsByEmail_(csvRows) {
-  var lookup = {};
+function buildCsvRowsLookup_(csvRows) {
+  var lookup = {
+    byEmail: {},
+    byName: {}
+  };
   csvRows.forEach(function(row) {
     var email = String(getValue_(row, 'User Email') || '').toLowerCase().trim();
-    if (!email) return;
-    if (!lookup[email]) lookup[email] = [];
-    lookup[email].push(row);
+    var nameKey = normalizePersonKey_(getValue_(row, 'User Name'));
+
+    if (email) {
+      if (!lookup.byEmail[email]) lookup.byEmail[email] = [];
+      lookup.byEmail[email].push(row);
+    }
+
+    if (nameKey) {
+      if (!lookup.byName[nameKey]) lookup.byName[nameKey] = [];
+      lookup.byName[nameKey].push(row);
+    }
   });
   return lookup;
+}
+
+function getCsvCandidatesForOffer_(csvLookup, repEmail, repName) {
+  var candidates = [];
+  var seen = {};
+
+  function addRows(rows) {
+    (rows || []).forEach(function(row) {
+      var key = [
+        String(getValue_(row, 'User Email') || '').toLowerCase().trim(),
+        normalizePersonKey_(getValue_(row, 'User Name')),
+        peakNormalizeSimulationName_(getValue_(row, 'Simulation Name'))
+      ].join('|');
+      if (seen[key]) return;
+      seen[key] = true;
+      candidates.push(row);
+    });
+  }
+
+  addRows(csvLookup.byEmail[String(repEmail || '').toLowerCase().trim()]);
+  addRows(csvLookup.byName[normalizePersonKey_(repName)]);
+
+  return candidates;
 }
 
 function findCsvRowForAssignedSim_(candidateRows, simName) {
@@ -2794,7 +2841,6 @@ function buildManagerEmailHtml_(managerName, rows, testMode, intendedManagerEmai
     sectionCard_(
       'TEAM SNAPSHOT',
       'Scheduled Simulations Included',
-      dueWeekSummaryHtml_(rows) +
       metricTiles_([
         { label: COMPLETED_CLEARED_LABEL, value: completedClearedCount, color: COMPLETED_CLEARED_COLOR },
         { label: COMPLETED_NOT_CLEARED_LABEL, value: lowScoreCount, color: COMPLETED_NOT_CLEARED_COLOR },
@@ -2910,7 +2956,6 @@ function appendPlainTextSection_(lines, title, groups) {
         index === 0 ? group.repName : '',
         index === 0 ? group.journeyName : '',
         item.simulationName,
-        item.dueWeekLabel,
         item.dateAssignedLabel,
         item.status,
         formatScore_(item.score)
@@ -2939,7 +2984,6 @@ function buildHtmlSection_(title, groups, useScoreGradient) {
       return '<tr' + rowStyle + '>' +
         leadingCells +
         '<td>' + escapeHtml_(item.assignedSimulationName || item.simulationName) + '</td>' +
-        '<td>' + escapeHtml_(item.dueWeekLabel || '') + '</td>' +
         dateAssignedCell_(item) +
         '<td>' + statusBadge_(item.status, useScoreGradient ? 'warning' : '') + '</td>' +
         '<td>' + scoreBadge_(item.score) + '</td>' +
@@ -2950,23 +2994,8 @@ function buildHtmlSection_(title, groups, useScoreGradient) {
   return sectionCard_(
     title === COMPLETED_CLEARED_LABEL ? 'NO ACTION NEEDED' : (useScoreGradient ? 'COACHING NEEDED' : 'ACTION NEEDED'),
     title,
-    styledTable_(['Representative', 'Journey', 'Assigned Sim', 'Due Week', 'Date Assigned', 'Status', 'Score'], tableRows)
+    styledTable_(['Representative', 'Journey', 'Assigned Sim', 'Date Assigned', 'Status', 'Score'], tableRows)
   );
-}
-
-function dueWeekSummaryHtml_(rows) {
-  var weeks = {};
-  (rows || []).forEach(function(row) {
-    if (row.dueWeekLabel) weeks[row.dueWeekLabel] = true;
-  });
-  var labels = Object.keys(weeks).sort();
-  if (!labels.length) return '';
-
-  return '<div style="margin:0 6px 14px 6px;text-align:center;">' +
-    '<span style="display:inline-block;background:#eef5ff;color:#245bc5;border:1px solid #bfd7ff;border-radius:999px;padding:7px 12px;font-size:12px;font-weight:900;">Due in ' +
-    escapeHtml_(labels.join(', ')).replace(/^Week of /, 'Week of ') +
-    '</span>' +
-  '</div>';
 }
 
 function dateAssignedCell_(item) {
