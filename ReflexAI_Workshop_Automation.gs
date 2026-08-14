@@ -391,6 +391,7 @@ function sendManagerEmailBatches_(testMode) {
   var runSettings = getRunSettings_(spreadsheet);
   var managerRoster = buildLookerManagerRoster_(spreadsheet);
   var csvRows = loadReflexAiCsvRows_(spreadsheet, runSettings);
+  var assignedRows = [];
   var grouped = {};
   var skippedMissingManager = 0;
   var skippedNoManagerEmail = 0;
@@ -401,13 +402,19 @@ function sendManagerEmailBatches_(testMode) {
     return;
   }
 
-  csvRows.forEach(function(row) {
-    var userName = getValue_(row, 'User Name');
-    var userEmail = getValue_(row, 'User Email');
-    var managerInfo = getManagerInfoForRep_(managerRoster, userEmail, userName);
-    var managerEmail = String(managerInfo.managerEmail || '').toLowerCase().trim();
+  assignedRows = buildPeakCadenceEmailRows_(spreadsheet, csvRows, managerRoster, runSettings);
+  if (!assignedRows.length) {
+    SpreadsheetApp.getUi().alert(
+      'No booked peak-cadence assignments found.\n\n' +
+      'Manager emails now report only TS Offers rows with Status = BOOKED for the current/prior Weekly Sim Schedule weeks.'
+    );
+    return;
+  }
 
-    if (!managerInfo.managerName) {
+  assignedRows.forEach(function(rowItem) {
+    var managerEmail = String(rowItem.managerEmail || '').toLowerCase().trim();
+
+    if (!rowItem.managerName) {
       skippedMissingManager++;
       return;
     }
@@ -417,16 +424,16 @@ function sendManagerEmailBatches_(testMode) {
       return;
     }
 
-    if (isBlockedJohnRiordanEmail_(managerEmail)) {
+    if (isBlockedManagerForReporting_(rowItem.managerName, managerEmail)) {
       skippedBlockedRecipients++;
       return;
     }
 
     if (!grouped[managerEmail]) {
       grouped[managerEmail] = {
-        managerName: managerInfo.managerName || '',
+        managerName: rowItem.managerName || '',
         ccEmails: {},
-        metricBucket: newMetricBucket_(managerInfo.managerName || ''),
+        metricBucket: newMetricBucket_(rowItem.managerName || ''),
         metricRows: [],
         metrics: null,
         allRows: [],
@@ -434,30 +441,15 @@ function sendManagerEmailBatches_(testMode) {
       };
     }
 
-    var seniorEmail = String(managerInfo.seniorEmail || '').toLowerCase().trim();
+    var seniorEmail = String(rowItem.seniorEmail || '').toLowerCase().trim();
     if (seniorEmail && seniorEmail !== managerEmail && isAllowedRecipientEmail_(seniorEmail)) {
       grouped[managerEmail].ccEmails[seniorEmail] = true;
     }
 
-    var score = parseScore_(getValue_(row, 'Best Score (%)'));
-    var category = classifySimulationOutcome_(getValue_(row, 'Status'), score);
-    var rowItem = {
-      repName: userName,
-      repEmail: userEmail,
-      journeyName: getJourneyNameForRow_(row, runSettings),
-      simulationName: getValue_(row, 'Simulation Name') || 'Unknown Simulation',
-      status: getValue_(row, 'Status') || '',
-      score: isNaN(score) ? '' : score / 100,
-      action: actionForOutcome_(category)
-    };
-
     grouped[managerEmail].allRows.push(rowItem);
     grouped[managerEmail].rows.push(rowItem);
-    addMetricOutcome_(grouped[managerEmail].metricBucket, category, score);
-    grouped[managerEmail].metricRows.push({
-      simulationName: rowItem.simulationName,
-      score: rowItem.score
-    });
+    addMetricOutcome_(grouped[managerEmail].metricBucket, rowItem.category, rowItem.scorePercent);
+    grouped[managerEmail].metricRows.push(rowItem);
   });
 
   var managerEmails = Object.keys(grouped).filter(function(managerEmail) {
@@ -591,18 +583,23 @@ function sendSeniorLeadershipRecaps_(testMode) {
   }
 
   var managerRoster = buildLookerManagerRoster_(spreadsheet);
+  var assignedRows = buildPeakCadenceEmailRows_(spreadsheet, csvRows, managerRoster, runSettings);
+  if (!assignedRows.length) {
+    SpreadsheetApp.getUi().alert(
+      'No booked peak-cadence assignments found.\n\n' +
+      'Senior leader emails now report only TS Offers rows with Status = BOOKED for the current/prior Weekly Sim Schedule weeks.'
+    );
+    return;
+  }
   var sentCount = 0;
 
   SENIOR_LEADER_SUPERGROUP_RECIPIENTS.forEach(function(config) {
-    var filteredRows = filterRowsForSupergroup_(csvRows, config.supergroupName, runSettings);
-    var recap = buildSeniorLeadershipRecap_(filteredRows, managerRoster, {
-      currentJourneyName: config.supergroupName
-    });
+    var filteredRows = filterAssignedRowsForSupergroup_(assignedRows, config.supergroupName);
+    var recap = buildAssignedSeniorLeadershipRecap_(filteredRows, config.supergroupName);
     recap.supergroupName = config.supergroupName;
     var recipients = testMode ? TEST_EMAIL_RECIPIENTS : [config.email];
     var subject = (testMode ? '[TEST] ' : '') + getCurrentMonthName_() + ' ' + recap.supergroupName + ' ReflexAI Supergroup Recap';
     var takeRate = buildOfferTakeRateForSupergroup_(spreadsheet, config.supergroupName);
-    applyOpenOfferCountsToManagerRows_(recap.managerRows, takeRate);
     var inlineImages = {};
     var takeRateChartCid = '';
     if (takeRate.total) {
@@ -642,6 +639,90 @@ function filterRowsForSupergroup_(rows, supergroupName, runSettings) {
   });
 }
 
+function filterAssignedRowsForSupergroup_(rows, supergroupName) {
+  var target = peakSalesGroupKey_(supergroupName);
+  return (rows || []).filter(function(row) {
+    return peakSalesGroupKey_(row.supergroupName || row.salesGroup) === target;
+  });
+}
+
+function buildAssignedSeniorLeadershipRecap_(assignedRows, supergroupName) {
+  var recap = {
+    generatedAt: new Date(),
+    totalRows: assignedRows.length,
+    supergroupName: supergroupName || 'Supergroup',
+    counts: {
+      notStarted: 0,
+      completedBelow: 0,
+      completedAbove: 0
+    },
+    bySimulation: {},
+    byManager: {},
+    overdueRows: []
+  };
+
+  assignedRows.forEach(function(row) {
+    if (isBlockedManagerForReporting_(row.managerName, row.managerEmail)) return;
+
+    recap.counts[row.category]++;
+
+    var managerKey = getManagerRecapKey_(row.managerName, row.managerEmail);
+    if (!managerKey) managerKey = 'unassigned';
+    if (!recap.byManager[managerKey]) {
+      recap.byManager[managerKey] = {
+        managerName: row.managerName || 'Unassigned',
+        managerEmail: row.managerEmail || '',
+        notStarted: 0,
+        completedBelow: 0,
+        completedAbove: 0,
+        total: 0
+      };
+    }
+
+    recap.byManager[managerKey][row.category]++;
+    recap.byManager[managerKey].total++;
+
+    if (isCompletedStatus_(row.status) && isFinite(row.scorePercent)) {
+      if (!recap.bySimulation[row.assignedSimulationName]) {
+        recap.bySimulation[row.assignedSimulationName] = {
+          simulationName: row.assignedSimulationName,
+          completedCount: 0,
+          scoreTotal: 0
+        };
+      }
+      recap.bySimulation[row.assignedSimulationName].completedCount++;
+      recap.bySimulation[row.assignedSimulationName].scoreTotal += row.scorePercent;
+    }
+
+    if (row.overdue) {
+      recap.overdueRows.push(row);
+    }
+  });
+
+  recap.simulationAverages = Object.keys(recap.bySimulation)
+    .map(function(key) {
+      var item = recap.bySimulation[key];
+      return {
+        simulationName: item.simulationName,
+        completedCount: item.completedCount,
+        averageScore: item.completedCount ? item.scoreTotal / item.completedCount : null
+      };
+    })
+    .sort(function(a, b) {
+      return String(a.simulationName).localeCompare(String(b.simulationName));
+    });
+
+  recap.managerRows = Object.keys(recap.byManager)
+    .map(function(key) {
+      return recap.byManager[key];
+    })
+    .sort(function(a, b) {
+      return String(a.managerName).localeCompare(String(b.managerName));
+    });
+
+  return recap;
+}
+
 function getSeniorLeaderRecipients_(spreadsheet) {
   var sheet = spreadsheet.getSheetByName(EXCEPTION_SHEET_NAME);
   if (!sheet || sheet.getLastRow() < 2) {
@@ -670,6 +751,257 @@ function getSeniorLeaderRecipients_(spreadsheet) {
   });
 
   return recipients;
+}
+
+function buildPeakCadenceEmailRows_(spreadsheet, csvRows, managerRoster, runSettings) {
+  var scheduleIndex = buildWeeklyAssignmentScheduleIndex_(spreadsheet);
+  var csvLookup = buildCsvRowsByEmail_(csvRows);
+  var offerRows = readSheetRows_(spreadsheet, 'TS Offers');
+  var rows = [];
+  var seen = {};
+  var now = new Date();
+  var currentDayEnd = new Date(now.getTime());
+  currentDayEnd.setHours(23, 59, 59, 999);
+
+  offerRows.forEach(function(offerRow) {
+    var status = String(getValue_(offerRow, 'Status') || '').trim().toUpperCase();
+    if (status !== 'BOOKED') return;
+    if (tsOfferRowInactiveForEmail_(offerRow)) return;
+
+    var repEmail = String(getValue_(offerRow, 'Consultant Email') || '').toLowerCase().trim();
+    var repName = getValue_(offerRow, 'Consultant') || getValue_(offerRow, 'Consultant Name') || '';
+    var salesGroup = getValue_(offerRow, 'Sales Group') || '';
+    var managerNameFromOffer = getValue_(offerRow, 'Manager') || getValue_(offerRow, 'Manager Name') || '';
+    var sims = String(getValue_(offerRow, 'Sims') || getValue_(offerRow, 'Sims CSV') || '')
+      .split(',')
+      .map(function(value) { return value.trim(); })
+      .filter(Boolean);
+    var bookedWindow = getValue_(offerRow, 'Booked Window');
+    var bookedStart = parseBookedWindowStart_(bookedWindow);
+
+    sims.forEach(function(simName) {
+      var assignment = findWeeklyAssignmentForOffer_(scheduleIndex, salesGroup, simName, bookedStart);
+      var dueWeekStart = assignment && assignment.weekStart
+        ? assignment.weekStart
+        : peakWeekStartFromDate_(bookedStart);
+
+      if (dueWeekStart && dueWeekStart.getTime() > currentDayEnd.getTime()) return;
+
+      var dedupeKey = [
+        repEmail || normalizePersonKey_(repName),
+        peakNormalizeSimulationName_(simName),
+        String(bookedWindow || ''),
+        dueWeekStart ? dueWeekStart.getTime() : ''
+      ].join('|');
+      if (seen[dedupeKey]) return;
+      seen[dedupeKey] = true;
+
+      var csvRow = findCsvRowForAssignedSim_(csvLookup[repEmail] || [], simName);
+      var csvStatus = csvRow ? getValue_(csvRow, 'Status') : 'Not Started';
+      var score = csvRow ? parseScore_(getValue_(csvRow, 'Best Score (%)')) : NaN;
+      var category = classifySimulationOutcome_(csvStatus, score);
+      var csvRepName = csvRow ? getValue_(csvRow, 'User Name') : '';
+      var csvJourneyName = csvRow ? getJourneyNameForRow_(csvRow, runSettings || {}) : '';
+      var managerInfo = getManagerInfoForRep_(managerRoster, repEmail, csvRepName || repName);
+      var managerName = normalizeManagerDisplayName_(managerInfo.managerName || managerNameFromOffer || 'Unassigned');
+      var managerEmail = String(managerInfo.managerEmail || emailFromName_(managerName) || '').toLowerCase().trim();
+
+      if (isBlockedManagerForReporting_(managerName, managerEmail)) return;
+
+      rows.push({
+        repName: csvRepName || repName || repEmail,
+        repEmail: repEmail,
+        managerName: managerName,
+        managerEmail: managerEmail,
+        seniorName: managerInfo.seniorName || '',
+        seniorEmail: managerInfo.seniorEmail || '',
+        salesGroup: salesGroup,
+        supergroupName: deriveSupergroupName_(csvJourneyName || salesGroup),
+        journeyName: csvJourneyName || salesGroup,
+        simulationName: simName,
+        assignedSimulationName: assignment && assignment.simulationName ? assignment.simulationName : simName,
+        dueWeekStart: dueWeekStart,
+        dueWeekLabel: formatWeekLabel_(dueWeekStart),
+        dateAssigned: bookedStart,
+        dateAssignedLabel: formatAssignedDate_(bookedStart, bookedWindow),
+        status: csvStatus || 'Not Started',
+        score: isNaN(score) ? '' : score / 100,
+        scorePercent: score,
+        category: category,
+        overdue: !!(bookedStart && bookedStart.getTime() < now.getTime() && !isCompletedStatus_(csvStatus))
+      });
+    });
+  });
+
+  return rows.sort(function(a, b) {
+    var managerCompare = String(a.managerName).localeCompare(String(b.managerName));
+    if (managerCompare) return managerCompare;
+    var dateCompare = (a.dateAssigned ? a.dateAssigned.getTime() : 0) - (b.dateAssigned ? b.dateAssigned.getTime() : 0);
+    if (dateCompare) return dateCompare;
+    return String(a.repName).localeCompare(String(b.repName));
+  });
+}
+
+function buildWeeklyAssignmentScheduleIndex_(spreadsheet) {
+  var rows = readSheetRows_(spreadsheet, 'Weekly Sim Schedule');
+  var index = {
+    byGroupSim: {},
+    rows: []
+  };
+
+  rows.forEach(function(row) {
+    var weekStart = parsePeakDate_(getValue_(row, 'Week Start'));
+    var supergroup = getValue_(row, 'Supergroup');
+    var simulationName = getValue_(row, 'Simulation Name');
+    if (!weekStart || !supergroup || !simulationName) return;
+
+    var item = {
+      weekStart: weekStart,
+      supergroup: supergroup,
+      simulationName: simulationName,
+      groupKey: peakSalesGroupKey_(supergroup),
+      simKey: peakNormalizeSimulationName_(simulationName)
+    };
+    index.rows.push(item);
+    index.byGroupSim[item.groupKey + '|' + item.simKey] = item;
+  });
+
+  return index;
+}
+
+function findWeeklyAssignmentForOffer_(scheduleIndex, salesGroup, simName, bookedStart) {
+  var groupKey = peakSalesGroupKey_(salesGroup);
+  var simKey = peakNormalizeSimulationName_(simName);
+  var candidates = scheduleIndex.rows.filter(function(item) {
+    return item.groupKey === groupKey && (item.simKey === simKey || peakSimulationNamesMatch_(item.simulationName, simName));
+  });
+  if (!candidates.length) return null;
+
+  if (bookedStart) {
+    candidates.sort(function(a, b) {
+      return Math.abs(a.weekStart.getTime() - bookedStart.getTime()) - Math.abs(b.weekStart.getTime() - bookedStart.getTime());
+    });
+  }
+
+  return candidates[0];
+}
+
+function buildCsvRowsByEmail_(csvRows) {
+  var lookup = {};
+  csvRows.forEach(function(row) {
+    var email = String(getValue_(row, 'User Email') || '').toLowerCase().trim();
+    if (!email) return;
+    if (!lookup[email]) lookup[email] = [];
+    lookup[email].push(row);
+  });
+  return lookup;
+}
+
+function findCsvRowForAssignedSim_(candidateRows, simName) {
+  var exactKey = peakNormalizeSimulationName_(simName);
+  var fallback = null;
+
+  candidateRows.forEach(function(row) {
+    var candidateName = getValue_(row, 'Simulation Name');
+    var candidateKey = peakNormalizeSimulationName_(candidateName);
+    if (candidateKey === exactKey) {
+      fallback = row;
+      return;
+    }
+    if (!fallback && peakSimulationNamesMatch_(candidateName, simName)) {
+      fallback = row;
+    }
+  });
+
+  return fallback;
+}
+
+function peakSimulationNamesMatch_(left, right) {
+  var leftKey = peakNormalizeSimulationName_(left);
+  var rightKey = peakNormalizeSimulationName_(right);
+  if (!leftKey || !rightKey) return false;
+  if (leftKey === rightKey) return true;
+  if (Math.min(leftKey.length, rightKey.length) >= 12 && (leftKey.indexOf(rightKey) !== -1 || rightKey.indexOf(leftKey) !== -1)) return true;
+  var maxLength = Math.max(leftKey.length, rightKey.length);
+  return maxLength >= 20 && editDistance_(leftKey, rightKey) / maxLength <= 0.12;
+}
+
+function peakNormalizeSimulationName_(value) {
+  return String(value || '')
+    .toLowerCase()
+    .replace(/[’‘]/g, "'")
+    .replace(/&/g, ' and ')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .replace(/\b(reflex|reflexai|ai|simulation|sim)\b/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function peakSalesGroupKey_(value) {
+  var raw = String(value || '').trim().toLowerCase();
+  var compact = raw.replace(/[^a-z0-9]+/g, '');
+  if (!compact) return '';
+  if (compact.indexOf('highschool') !== -1) return 'high school';
+  if (compact.indexOf('adultlearner') !== -1 || compact.indexOf('adultlearning') !== -1) return 'adult learning';
+  if (compact.indexOf('elementary') !== -1 || compact === 'eld' || compact.indexOf('eld') !== -1) return 'eld';
+  if (compact.indexOf('college') !== -1) return 'college';
+  if (compact.indexOf('profcert') !== -1 || compact.indexOf('professionalcert') !== -1) return 'prof certs';
+  return raw;
+}
+
+function parseBookedWindowStart_(value) {
+  var raw = String(value || '').trim();
+  var match = raw.match(/^(\d{4})-(\d{1,2})-(\d{1,2})\s+(\d{1,2}):(\d{2})/);
+  if (match) {
+    return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]), Number(match[4]), Number(match[5]), 0);
+  }
+
+  return parsePeakDate_(value);
+}
+
+function parsePeakDate_(value) {
+  if (value instanceof Date && !isNaN(value.getTime())) return value;
+  var raw = String(value || '').trim();
+  if (!raw) return null;
+
+  var iso = raw.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if (iso) {
+    return new Date(Number(iso[1]), Number(iso[2]) - 1, Number(iso[3]));
+  }
+
+  var parsed = new Date(raw);
+  return isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function peakWeekStartFromDate_(dateValue) {
+  if (!dateValue || isNaN(dateValue.getTime())) return null;
+  var d = new Date(dateValue.getTime());
+  d.setHours(0, 0, 0, 0);
+  var day = d.getDay();
+  d.setDate(d.getDate() - day);
+  return d;
+}
+
+function formatWeekLabel_(dateValue) {
+  if (!dateValue || isNaN(dateValue.getTime())) return '';
+  return 'Week of ' + Utilities.formatDate(dateValue, getEmailTimeZone_(), 'MMM d, yyyy');
+}
+
+function formatAssignedDate_(dateValue, fallback) {
+  if (!dateValue || isNaN(dateValue.getTime())) return String(fallback || '').trim();
+  return Utilities.formatDate(dateValue, getEmailTimeZone_(), 'MMM d, yyyy h:mm a');
+}
+
+function getEmailTimeZone_() {
+  return (typeof TS !== 'undefined' && TS.TZ) || Session.getScriptTimeZone() || 'America/Chicago';
+}
+
+function isCompletedStatus_(status) {
+  return String(status || '').toLowerCase().trim() === 'completed';
+}
+
+function isBlockedManagerForReporting_(managerName, managerEmail) {
+  return isJohnRiordanName_(managerName) || isBlockedJohnRiordanEmail_(managerEmail);
 }
 
 function buildOfferTakeRateForManager_(spreadsheet, managerName) {
@@ -714,7 +1046,9 @@ function applyOpenOfferCountsToMetricRows_(rows, takeRate, nameProperty) {
 
 function buildOfferTakeRate_(spreadsheet, predicate) {
   var rows = readSheetRows_(spreadsheet, 'TS Offers').filter(function(row) {
-    return !tsOfferRowInactiveForEmail_(row) && predicate(row);
+    return !tsOfferRowInactiveForEmail_(row) &&
+      !isBlockedManagerForReporting_(getValue_(row, 'Manager') || getValue_(row, 'Manager Name'), '') &&
+      predicate(row);
   });
   var takeRate = {
     booked: 0,
@@ -875,10 +1209,17 @@ function sendDirectorEmail_(recipients, testMode) {
   }
 
   var managerRoster = buildLookerManagerRoster_(spreadsheet);
-  var recap = buildDirectorRecap_(csvRows, managerRoster, runSettings);
+  var assignedRows = buildPeakCadenceEmailRows_(spreadsheet, csvRows, managerRoster, runSettings);
+  if (!assignedRows.length) {
+    SpreadsheetApp.getUi().alert(
+      'No booked peak-cadence assignments found.\n\n' +
+      'Director emails now report only TS Offers rows with Status = BOOKED for the current/prior Weekly Sim Schedule weeks.'
+    );
+    return;
+  }
+  var recap = buildDirectorRecapFromAssignedRows_(assignedRows, runSettings);
   var subject = (testMode ? '[TEST] ' : '') + getCurrentMonthName_() + ' ' + recap.supergroupName + ' ReflexAI Director Recap';
   var takeRate = buildOfferTakeRateOverall_(spreadsheet);
-  applyOpenOfferCountsToMetricRows_(recap.managerRows, takeRate, 'managerName');
   var inlineImages = {};
   var takeRateChartCid = '';
   if (takeRate.total) {
@@ -903,6 +1244,79 @@ function sendDirectorEmail_(recipients, testMode) {
     '\nRows included: ' +
     recap.totalRows
   );
+}
+
+function buildDirectorRecapFromAssignedRows_(assignedRows, runSettings) {
+  var recap = {
+    totalRows: 0,
+    supergroupName: getCurrentSupergroupNameFromAssignedRows_(assignedRows, runSettings || {}),
+    company: newMetricBucket_(),
+    bySupergroup: {},
+    byManager: {},
+    overdueRows: []
+  };
+
+  assignedRows.forEach(function(row) {
+    if (isBlockedManagerForReporting_(row.managerName, row.managerEmail)) return;
+
+    var supergroupName = row.supergroupName || deriveSupergroupName_(row.journeyName || row.salesGroup);
+    var managerName = normalizeManagerDisplayName_(row.managerName || 'Unassigned');
+    var managerEmail = row.managerEmail || '';
+    var managerKey = getManagerRecapKey_(managerName, managerEmail);
+    if (!managerKey) managerKey = 'unassigned';
+
+    recap.totalRows++;
+    addMetricOutcome_(recap.company, row.category, row.scorePercent);
+
+    if (!recap.bySupergroup[supergroupName]) {
+      recap.bySupergroup[supergroupName] = newMetricBucket_(supergroupName);
+    }
+    addMetricOutcome_(recap.bySupergroup[supergroupName], row.category, row.scorePercent);
+
+    if (!recap.byManager[managerKey]) {
+      recap.byManager[managerKey] = newMetricBucket_(managerName);
+      recap.byManager[managerKey].managerEmail = managerEmail;
+    }
+    addMetricOutcome_(recap.byManager[managerKey], row.category, row.scorePercent);
+
+    if (row.overdue) {
+      recap.overdueRows.push(row);
+    }
+  });
+
+  recap.supergroupRows = Object.keys(recap.bySupergroup)
+    .map(function(key) {
+      return finalizeMetricBucket_(recap.bySupergroup[key]);
+    })
+    .sort(function(a, b) {
+      return String(a.name).localeCompare(String(b.name));
+    });
+
+  recap.managerRows = Object.keys(recap.byManager)
+    .map(function(key) {
+      return finalizeMetricBucket_(recap.byManager[key]);
+    })
+    .sort(metricRankSort_);
+
+  recap.company = finalizeMetricBucket_(recap.company);
+  recap.notStartedRows = buildDirectorNotStartedRows_({});
+  return recap;
+}
+
+function getCurrentSupergroupNameFromAssignedRows_(assignedRows, runSettings) {
+  var names = {};
+  (assignedRows || []).forEach(function(row) {
+    var supergroupName = row.supergroupName || deriveSupergroupName_(row.journeyName || row.salesGroup);
+    if (supergroupName) names[supergroupName.toLowerCase()] = supergroupName;
+  });
+
+  var distinct = Object.keys(names).map(function(key) {
+    return names[key];
+  }).sort();
+
+  if (distinct.length > 1) return 'All Supergroups';
+  if (distinct.length === 1) return distinct[0];
+  return deriveSupergroupName_((runSettings && runSettings.currentJourneyName) || DEFAULT_JOURNEY_NAME);
 }
 
 function getDirectorRecipients_(csvRows, managerRoster) {
@@ -1089,7 +1503,7 @@ function buildDirectorEmailText_(recap, testMode) {
   lines.push('');
   appendDirectorTextSection_(lines, 'Supergroup Breakdown', recap.supergroupRows.concat([companySummaryRow_(recap.company)]));
   appendDirectorTextSection_(lines, 'Manager Breakdown', recap.managerRows);
-  appendDirectorNotStartedTextSection_(lines, recap.notStartedRows);
+  appendOverdueAssignedTextSection_(lines, recap.overdueRows);
 
   return lines.join('\n');
 }
@@ -1332,7 +1746,7 @@ function buildDirectorEmailHtml_(recap, testMode, takeRate, takeRateChartCid) {
     ) +
     buildDirectorTable_('Supergroup Breakdown', recap.supergroupRows.concat([companySummaryRow_(recap.company)]), 'Supergroup') +
     buildDirectorTable_('Manager Breakdown', recap.managerRows, 'Manager') +
-    buildDirectorNotStartedTable_(recap.notStartedRows);
+    buildOverdueAssignedManagerTable_(recap.overdueRows, 'Assigned Time Passed - Not Completed');
 
   return emailShell_(
     getCurrentMonthName_() + ' ' + recap.supergroupName + ' ReflexAI Director Recap',
@@ -1342,7 +1756,7 @@ function buildDirectorEmailHtml_(recap, testMode, takeRate, takeRateChartCid) {
 }
 
 function buildDirectorTable_(title, rows, firstColumnLabel) {
-  var includeOpenOffers = title === 'Manager Breakdown';
+  var isManagerBreakdown = title === 'Manager Breakdown';
   var tableRows = rows.map(function(row) {
     var rowStyle = row.isCompanySummary ? ' style="background-color:#e7f7ec;font-weight:bold;"' : '';
 
@@ -1351,9 +1765,8 @@ function buildDirectorTable_(title, rows, firstColumnLabel) {
       '<td>' + escapeHtml_(formatCountPercent_(row.completedAbove, row.completedAbovePercent)) + '</td>' +
       '<td>' + escapeHtml_(formatCountPercent_(row.completedBelow, row.completedBelowPercent)) + '</td>' +
       '<td>' + escapeHtml_(formatCountPercent_(row.notStarted, row.notStartedPercent)) + '</td>' +
-      (includeOpenOffers ? '<td>' + (row.openOfferCount || 0) + '</td>' : '') +
       '<td>' + escapeHtml_(formatScore_(row.completedAverageScore)) + '</td>' +
-      '<td>' + row.total + '</td>' +
+      (isManagerBreakdown ? '' : '<td>' + row.total + '</td>') +
       '</tr>';
   }).join('');
 
@@ -1365,9 +1778,8 @@ function buildDirectorTable_(title, rows, firstColumnLabel) {
       COMPLETED_CLEARED_LABEL,
       COMPLETED_NOT_CLEARED_LABEL,
       NOT_STARTED_LABEL,
-      ...(includeOpenOffers ? ['Offered'] : []),
       'Average Completed Score',
-      'Total'
+      ...(isManagerBreakdown ? [] : ['Total'])
     ], tableRows)
   );
 }
@@ -1773,6 +2185,8 @@ function buildSeniorLeadershipRecapText_(recap, testMode, recipientConfig) {
     );
   });
 
+  appendOverdueAssignedTextSection_(lines, recap.overdueRows);
+
   return lines.join('\n');
 }
 
@@ -1791,6 +2205,7 @@ function buildSeniorLeadershipRecapHtml_(recap, testMode, recipientConfig, takeR
       ''
     ) +
     buildLeadershipCountsTable_(recap) +
+    buildOverdueAssignedManagerTable_(recap.overdueRows, 'Assigned Time Passed - Not Completed') +
     buildSimulationAverageTable_(recap.simulationAverages) +
     buildManagerRecapTable_(recap.managerRows);
 
@@ -1799,6 +2214,17 @@ function buildSeniorLeadershipRecapHtml_(recap, testMode, recipientConfig, takeR
     EMAIL_SUBTITLE,
     bodyHtml
   );
+}
+
+function appendOverdueAssignedTextSection_(lines, rows) {
+  var managerRows = buildOverdueAssignedManagerRows_(rows);
+  if (!managerRows.length) return;
+
+  lines.push('');
+  lines.push('Assigned time passed - not completed');
+  managerRows.forEach(function(row) {
+    lines.push(row.managerName + ': ' + row.reps.join(', '));
+  });
 }
 
 function buildLeadershipCountsTable_(recap) {
@@ -1837,7 +2263,6 @@ function buildManagerRecapTable_(managerRows) {
       '<td>' + escapeHtml_(formatPercent_(manager.completedAbove, manager.total)) + '</td>' +
       '<td>' + escapeHtml_(formatPercent_(manager.completedBelow, manager.total)) + '</td>' +
       '<td>' + escapeHtml_(formatPercent_(manager.notStarted, manager.total)) + '</td>' +
-      '<td>' + (manager.openOfferCount || 0) + '</td>' +
       '<td>' + manager.total + '</td>' +
       '</tr>';
   }).join('');
@@ -1850,10 +2275,45 @@ function buildManagerRecapTable_(managerRows) {
       '% ' + COMPLETED_CLEARED_LABEL,
       '% ' + COMPLETED_NOT_CLEARED_LABEL,
       '% ' + NOT_STARTED_LABEL,
-      'Offered',
       'Total Simulations'
     ], rows)
   );
+}
+
+function buildOverdueAssignedManagerTable_(rows, title) {
+  var managerRows = buildOverdueAssignedManagerRows_(rows);
+  if (!managerRows.length) return '';
+
+  var tableRows = managerRows.map(function(row) {
+    return '<tr>' +
+      '<td>' + escapeHtml_(row.managerName) + '</td>' +
+      '<td>' + escapeHtml_(row.reps.join(', ')) + '</td>' +
+      '</tr>';
+  }).join('');
+
+  return sectionCard_(
+    'QUICK GLANCE',
+    title || 'Assigned Time Passed - Not Completed',
+    styledTable_(['Manager', 'Reps'], tableRows)
+  );
+}
+
+function buildOverdueAssignedManagerRows_(rows) {
+  var byManager = {};
+  (rows || []).forEach(function(row) {
+    if (!row.overdue) return;
+    if (isBlockedManagerForReporting_(row.managerName, row.managerEmail)) return;
+    var managerName = row.managerName || 'Unassigned';
+    if (!byManager[managerName]) byManager[managerName] = {};
+    if (row.repName) byManager[managerName][row.repName] = true;
+  });
+
+  return Object.keys(byManager).sort().map(function(managerName) {
+    return {
+      managerName: managerName,
+      reps: Object.keys(byManager[managerName]).sort()
+    };
+  });
 }
 
 function buildLookerManagerRoster_(spreadsheet) {
@@ -2297,7 +2757,7 @@ function buildManagerEmailBody_(managerName, rows, testMode, intendedManagerEmai
 
   lines.push('Hi' + (managerName ? ' ' + managerName : '') + ',');
   lines.push('');
-  lines.push('Below is the latest ReflexAI simulation status for your team.');
+  lines.push('Below is the latest ReflexAI status for simulations scheduled for your team through the current peak cadence week.');
   lines.push('Please use this video as a resource for navigating the ReflexAI Platform for further insights: ' + REFLEXAI_PLATFORM_RESOURCE_URL);
   lines.push('');
 
@@ -2324,7 +2784,7 @@ function buildManagerEmailHtml_(managerName, rows, testMode, intendedManagerEmai
       : '') +
     introCard_(
       'Hi' + (managerName ? ' ' + managerName : '') + ',',
-      'Below is the latest ReflexAI simulation status for your team.'
+      'Below is the latest ReflexAI status for simulations that have been scheduled for your team through the current peak cadence week.'
     ) +
     '<div style="text-align:center;margin:18px 0 22px 0;">' +
       '<a href="' + REFLEXAI_PLATFORM_RESOURCE_URL + '" style="display:inline-block;background:#24205f;color:#ffffff;text-decoration:none;padding:12px 20px;border-radius:999px;font-weight:700;font-size:14px;">Watch ReflexAI Navigation Video</a>' +
@@ -2333,7 +2793,8 @@ function buildManagerEmailHtml_(managerName, rows, testMode, intendedManagerEmai
     '</div>' +
     sectionCard_(
       'TEAM SNAPSHOT',
-      'Follow-Up Items Included',
+      'Scheduled Simulations Included',
+      dueWeekSummaryHtml_(rows) +
       metricTiles_([
         { label: COMPLETED_CLEARED_LABEL, value: completedClearedCount, color: COMPLETED_CLEARED_COLOR },
         { label: COMPLETED_NOT_CLEARED_LABEL, value: lowScoreCount, color: COMPLETED_NOT_CLEARED_COLOR },
@@ -2349,8 +2810,8 @@ function buildManagerEmailHtml_(managerName, rows, testMode, intendedManagerEmai
       takeRateChartCid,
       buildManagerOpenOfferDetailsHtml_(takeRate)
     ) +
-    buildHtmlSection_(COMPLETED_NOT_CLEARED_LABEL + ' - Priority', sections.lowScoreGroups, true) +
-    buildHtmlSection_(NOT_STARTED_LABEL, sections.incompleteGroups, false) +
+    buildHtmlSection_(COMPLETED_NOT_CLEARED_LABEL + ' - Coaching Needed', sections.lowScoreGroups, true) +
+    buildHtmlSection_(NOT_STARTED_LABEL + ' - Action Needed', sections.incompleteGroups, false) +
     buildHtmlSection_(COMPLETED_CLEARED_LABEL, sections.completedClearedGroups, false) +
     introCard_('Thank you.', 'Please use this report to prioritize coaching and completion follow-up.');
 
@@ -2416,6 +2877,10 @@ function aggregateEmailRowsByRepJourney_(rows) {
 
     grouped[key].simulations.push({
       simulationName: row.simulationName,
+      assignedSimulationName: row.assignedSimulationName || row.simulationName,
+      dueWeekLabel: row.dueWeekLabel || '',
+      dateAssignedLabel: row.dateAssignedLabel || '',
+      overdue: !!row.overdue,
       status: row.status,
       score: row.score,
       action: row.action
@@ -2445,9 +2910,10 @@ function appendPlainTextSection_(lines, title, groups) {
         index === 0 ? group.repName : '',
         index === 0 ? group.journeyName : '',
         item.simulationName,
+        item.dueWeekLabel,
+        item.dateAssignedLabel,
         item.status,
-        formatScore_(item.score),
-        index === 0 ? summarizeActions_(group.simulations) : ''
+        formatScore_(item.score)
       ].join(' | '));
     });
 
@@ -2464,33 +2930,54 @@ function buildHtmlSection_(title, groups, useScoreGradient) {
     var rowStyle = '';
 
     var rowspan = group.simulations.length;
-    var action = summarizeActions_(group.simulations);
-
     return group.simulations.map(function(item, index) {
       var leadingCells = index === 0
         ? '<td rowspan="' + rowspan + '">' + escapeHtml_(group.repName) + '</td>' +
           '<td rowspan="' + rowspan + '">' + escapeHtml_(group.journeyName) + '</td>'
         : '';
 
-      var actionCell = index === 0
-        ? '<td rowspan="' + rowspan + '">' + escapeHtml_(action) + '</td>'
-        : '';
-
       return '<tr' + rowStyle + '>' +
         leadingCells +
-        '<td>' + escapeHtml_(item.simulationName) + '</td>' +
+        '<td>' + escapeHtml_(item.assignedSimulationName || item.simulationName) + '</td>' +
+        '<td>' + escapeHtml_(item.dueWeekLabel || '') + '</td>' +
+        dateAssignedCell_(item) +
         '<td>' + statusBadge_(item.status, useScoreGradient ? 'warning' : '') + '</td>' +
         '<td>' + scoreBadge_(item.score) + '</td>' +
-        actionCell +
         '</tr>';
     }).join('');
   }).join('');
 
   return sectionCard_(
-    title === COMPLETED_CLEARED_LABEL ? 'NO ACTION NEEDED' : (useScoreGradient ? 'PRIORITY FOLLOW-UP' : 'ACTION NEEDED'),
+    title === COMPLETED_CLEARED_LABEL ? 'NO ACTION NEEDED' : (useScoreGradient ? 'COACHING NEEDED' : 'ACTION NEEDED'),
     title,
-    styledTable_(['Representative', 'Journey', 'Simulation', 'Status', 'Score', 'Follow-up Action'], tableRows)
+    styledTable_(['Representative', 'Journey', 'Assigned Sim', 'Due Week', 'Date Assigned', 'Status', 'Score'], tableRows)
   );
+}
+
+function dueWeekSummaryHtml_(rows) {
+  var weeks = {};
+  (rows || []).forEach(function(row) {
+    if (row.dueWeekLabel) weeks[row.dueWeekLabel] = true;
+  });
+  var labels = Object.keys(weeks).sort();
+  if (!labels.length) return '';
+
+  return '<div style="margin:0 6px 14px 6px;text-align:center;">' +
+    '<span style="display:inline-block;background:#eef5ff;color:#245bc5;border:1px solid #bfd7ff;border-radius:999px;padding:7px 12px;font-size:12px;font-weight:900;">Due in ' +
+    escapeHtml_(labels.join(', ')).replace(/^Week of /, 'Week of ') +
+    '</span>' +
+  '</div>';
+}
+
+function dateAssignedCell_(item) {
+  var label = item.dateAssignedLabel || '';
+  if (!item.overdue) {
+    return '<td>' + escapeHtml_(label) + '</td>';
+  }
+
+  return '<td><span style="display:inline-block;border-radius:999px;background:#fff1f2;color:#b91c1c;border:1px solid #fecdd3;font-weight:900;font-size:12px;padding:5px 9px;white-space:nowrap;">' +
+    escapeHtml_(label + ' - overdue') +
+    '</span></td>';
 }
 
 function statusBadge_(status, tone) {
