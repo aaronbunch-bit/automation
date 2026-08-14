@@ -161,6 +161,9 @@ function runWeeklyAssignedScheduling_(testMode, salesGroupFilter) {
   var range = tsWeeklyRange_(weekStart);
   var scheduleIdx = tsPullPhoneScheduleIndex_(headers, range.start, range.end);
   var queueCache = {};
+  var slotOccupancy = tsBuildWeeklySlotOccupancy_(weekStartKey);
+  var slotCap = Number(config.WEEKLY_MAX_REPS_PER_SIM_SLOT || 3);
+  if (!isFinite(slotCap) || slotCap < 1) slotCap = 3;
   var processed = 0;
   var booked = 0;
   var testSent = 0;
@@ -201,9 +204,12 @@ function runWeeklyAssignedScheduling_(testMode, salesGroupFilter) {
       var bestWindow = tsFindBestWeeklyTrainingWindow_(
         queueCache[need.queue].forecastCache,
         scheduleIdx,
+        need,
         need.email,
         Number(need.durationMin || 20) * 60 * 1000,
-        config
+        config,
+        slotOccupancy,
+        slotCap
       );
 
       if (!bestWindow) {
@@ -220,9 +226,14 @@ function runWeeklyAssignedScheduling_(testMode, salesGroupFilter) {
       if (testMode) {
         tsSendWeeklyAssignedTestMessage_(need, bestWindow);
         testSent++;
+        tsIncrementWeeklySlotOccupancy_(slotOccupancy, need, bestWindow);
       } else {
-        tsBookWeeklyAssignedWindow_(headers, need, bestWindow);
-        booked++;
+        if (tsBookWeeklyAssignedWindow_(headers, need, bestWindow)) {
+          tsIncrementWeeklySlotOccupancy_(slotOccupancy, need, bestWindow);
+          booked++;
+        } else {
+          failed++;
+        }
       }
       processed++;
     } catch (err) {
@@ -427,7 +438,78 @@ function tsBuildWeeklyForecastCache_(headers, siteId, queueId, range, config) {
   return cache;
 }
 
-function tsFindBestWeeklyTrainingWindow_(forecastCache, scheduleIdx, consultantEmail, durationMs, config) {
+function tsBuildWeeklySlotOccupancy_(weekStartKey) {
+  var occupancy = {};
+  var sheet = tsGetSpreadsheet_().getSheetByName(TS.SHEETS.OFFERS);
+  if (!sheet || sheet.getLastRow() < 2) return occupancy;
+
+  var values = sheet.getDataRange().getValues();
+  var weekStart = tsBuildDateTime_(weekStartKey, '00:00');
+  var weekEnd = weekStart ? new Date(weekStart.getTime() + 7 * 24 * 60 * 60 * 1000) : null;
+  var activeColumn = typeof tsGetOfferActiveColumn_ === 'function'
+    ? tsGetOfferActiveColumn_(sheet)
+    : 0;
+
+  for (var i = 1; i < values.length; i++) {
+    var row = values[i];
+    var status = String(row[TS.OFFER_COLS.STATUS - 1] || '').trim().toUpperCase();
+    if (status !== 'BOOKED') continue;
+    if (activeColumn && typeof tsOfferRowIsInactive_ === 'function' && tsOfferRowIsInactive_(row, activeColumn)) continue;
+
+    var bookedWindow = String(row[TS.OFFER_COLS.BOOKED_WINDOW - 1] || '').trim();
+    var windowParts = tsWeeklyBookedWindowParts_(bookedWindow);
+    if (!windowParts.dateStr || !windowParts.startStr) continue;
+
+    var bookedDate = tsBuildDateTime_(windowParts.dateStr, '00:00');
+    if (weekStart && weekEnd && (!bookedDate || bookedDate < weekStart || bookedDate >= weekEnd)) continue;
+
+    String(row[TS.OFFER_COLS.SIMS_CSV - 1] || '')
+      .split(',')
+      .map(function(sim) { return sim.trim(); })
+      .filter(Boolean)
+      .forEach(function(sim) {
+        var key = tsWeeklySlotKey_(sim, windowParts.dateStr, windowParts.startStr);
+        occupancy[key] = (occupancy[key] || 0) + 1;
+      });
+  }
+
+  return occupancy;
+}
+
+function tsWeeklyBookedWindowParts_(bookedWindow) {
+  var raw = String(bookedWindow || '').trim();
+  var match = raw.match(/^(\d{4}-\d{2}-\d{2})\s+(\d{1,2}:\d{2})/);
+  if (!match) {
+    return {
+      dateStr: raw.substring(0, 10),
+      startStr: ''
+    };
+  }
+
+  return {
+    dateStr: match[1],
+    startStr: match[2]
+  };
+}
+
+function tsWeeklySlotCount_(occupancy, need, dateStr, startStr) {
+  return occupancy[tsWeeklySlotKey_((need.sims || [])[0], dateStr, startStr)] || 0;
+}
+
+function tsIncrementWeeklySlotOccupancy_(occupancy, need, window) {
+  var key = tsWeeklySlotKey_((need.sims || [])[0], window.dateStr, window.startStr);
+  occupancy[key] = (occupancy[key] || 0) + 1;
+}
+
+function tsWeeklySlotKey_(simulationName, dateStr, startStr) {
+  return [
+    tsWeeklyNormalizeSimulationName_(simulationName),
+    String(dateStr || '').trim(),
+    String(startStr || '').trim()
+  ].join('|');
+}
+
+function tsFindBestWeeklyTrainingWindow_(forecastCache, scheduleIdx, need, consultantEmail, durationMs, config, slotOccupancy, slotCap) {
   var best = null;
   var bandStartHour = Number(config.BUSINESS_HOUR_START || TS.BUSINESS_HOUR_START);
   var bandEndHour = Number(config.BUSINESS_HOUR_END || TS.BUSINESS_HOUR_END);
@@ -449,6 +531,8 @@ function tsFindBestWeeklyTrainingWindow_(forecastCache, scheduleIdx, consultantE
       if (slotStart < bandStart || slotEnd > bandEnd) continue;
       if (slotStart.getTime() < new Date().getTime() + 2 * 60 * 60 * 1000) continue;
       if (!tsConsultantOnShiftDuringWindow_(scheduleIdx, consultantEmail, slotStart, slotEnd)) continue;
+      var slotStartStr = Utilities.formatDate(slotStart, TS.TZ, 'HH:mm');
+      if (tsWeeklySlotCount_(slotOccupancy, need, dateStr, slotStartStr) >= slotCap) continue;
 
       var minPostNet = Infinity;
       for (var j = i; j < intervals.length; j++) {
@@ -470,7 +554,7 @@ function tsFindBestWeeklyTrainingWindow_(forecastCache, scheduleIdx, consultantE
           start: slotStart,
           end: slotEnd,
           dateStr: dateStr,
-          startStr: Utilities.formatDate(slotStart, TS.TZ, 'HH:mm'),
+          startStr: slotStartStr,
           endStr: Utilities.formatDate(slotEnd, TS.TZ, 'HH:mm'),
           postNet: minPostNet
         };
@@ -539,7 +623,7 @@ function tsBookWeeklyAssignedWindow_(headers, need, window) {
   var commit = tsCommitTrainingToAssembled_(headers, need.email, need.name, window.start, window.end, description, 'weekly-assigned');
   if (!commit.ok) {
     tsAudit_('WEEKLY_ASSIGNED', need.email, 'Assembled commit failed', 'FAILED');
-    return;
+    return false;
   }
 
   var offerRow = tsAppendOfferRow_(need);
@@ -553,6 +637,7 @@ function tsBookWeeklyAssignedWindow_(headers, need, window) {
   tsCreateConsultantCalendarEvent_(need.email, need.name, need.sims.join(', '), need.salesGroup, window.start, window.end, 'weekly-assigned');
   tsSlackDmConsultant_(need.name, need.email, tsBuildWeeklyAssignedSlackMessage_(need, window, false));
   tsAudit_('WEEKLY_ASSIGNED', need.email, 'Booked weekly assigned sim ' + need.sims.join(', ') + ' at ' + window.dateStr + ' ' + window.startStr, 'OK');
+  return true;
 }
 
 function tsSendWeeklyAssignedTestMessage_(need, window) {
@@ -594,5 +679,6 @@ function tsEnsureWeeklyConfigKeys_() {
   tsEnsureOptionalConfigKey_(sheet, 'WEEKLY_MODE_START_DATE', '2026-08-01', 'Weekly assigned mode start date');
   tsEnsureOptionalConfigKey_(sheet, 'WEEKLY_MODE_END_DATE', '2026-10-31', 'Weekly assigned mode end date');
   tsEnsureOptionalConfigKey_(sheet, 'WEEKLY_TRAINING_DURATION_MIN', '20', 'Weekly assigned training block length');
+  tsEnsureOptionalConfigKey_(sheet, 'WEEKLY_MAX_REPS_PER_SIM_SLOT', '3', 'Maximum reps assigned the same sim at the same date/time');
   tsEnsureOptionalConfigKey_(sheet, 'WEEKLY_TEST_SLACK_ALIAS', 'aaron.bunch', 'Slack alias for weekly assigned test messages');
 }
