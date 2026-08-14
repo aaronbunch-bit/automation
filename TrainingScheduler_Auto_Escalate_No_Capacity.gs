@@ -37,13 +37,15 @@ function tsAutoEscalateNoCapacity_(need, diag, config) {
   var offerRow = tsAppendOfferRow_(need);
   var offerSheet = tsGetSpreadsheet_().getSheetByName(TS.SHEETS.OFFERS);
   var now = new Date();
-  var reason = 'No capacity-safe windows in next ' + (config.SEARCH_DAYS || TS.SEARCH_DAYS) + ' weekdays — ' + diag;
+  var reason = need.weekStart
+    ? 'No eligible weekly assigned window for week ' + need.weekStart + ' — ' + diag
+    : 'No capacity-safe windows in next ' + (config.SEARCH_DAYS || TS.SEARCH_DAYS) + ' weekdays — ' + diag;
 
   offerSheet.getRange(offerRow, TS.OFFER_COLS.STATUS).setValue('ESCALATED');
   offerSheet.getRange(offerRow, TS.OFFER_COLS.OFFER_SENT_AT).setValue(now);
   offerSheet.getRange(offerRow, TS.OFFER_COLS.REMINDER_SENT_AT).setValue(now);
   if (need.weekStart) {
-    offerSheet.getRange(offerRow, TS.OFFER_COLS.BOOKED_WINDOW).setValue(need.weekStart + ' no capacity');
+    offerSheet.getRange(offerRow, TS.OFFER_COLS.BOOKED_WINDOW).setValue(need.weekStart + ' manual scheduling');
   }
   SpreadsheetApp.flush();
 
@@ -89,7 +91,15 @@ function tsHasEscalatedOffer_(email, salesGroup, need) {
 }
 
 function tsNotifyRepNoCapacity_(need) {
-  var message = [
+  var message = need.weekStart ? [
+    '*Reflex-AI training scheduling update*',
+    '',
+    'We could not automatically schedule your weekly Reflex-AI training block within your available phone schedule and the current scheduling limits.',
+    '',
+    'Your manager has been notified and will help schedule time manually.',
+    '',
+    'No action is needed from you right now.'
+  ].join('\n') : [
     '*Reflex-AI training scheduling update*',
     '',
     'Your current schedule does not have enough open capacity-safe windows for automatic scheduling of your Reflex-AI simulations.',
@@ -116,12 +126,17 @@ function tsNotifyManagerNoCapacity_(need, reason) {
   var message = [
     '*Reflex-AI training manual scheduling needed*',
     '',
-    '*' + (need.name || need.email) + '* could not be automatically scheduled because there is not enough capacity within their current schedule.',
+    '*' + (need.name || need.email) + '* could not be automatically scheduled because ' +
+      (need.weekStart
+        ? 'no eligible weekly assigned slot was available within their phone schedule and the current scheduling limits.'
+        : 'there is not enough capacity within their current schedule.'),
     '',
     'Please manually schedule a *' + need.durationMin + '-minute* Training block in Assembled for this rep to complete their simulations.',
     need.sims && need.sims.length ? 'Sims: ' + need.sims.join(', ') : '',
     '',
-    'This has been auto-escalated because no capacity-safe automatic windows were available.'
+    need.weekStart
+      ? 'This has been auto-escalated because the weekly assigned scheduler could not find an eligible automatic slot.'
+      : 'This has been auto-escalated because no capacity-safe automatic windows were available.'
   ].filter(Boolean).join('\n');
 
   try {
