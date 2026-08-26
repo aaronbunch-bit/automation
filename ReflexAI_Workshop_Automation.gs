@@ -319,6 +319,9 @@ function runWeeklySimulationExceptionReport() {
       }
       return;
     }
+    if (isBlockedManagerForReporting_(managerInfo.managerName, managerInfo.managerEmail)) {
+      return;
+    }
 
     var scoreNumber = parseScore_(score);
     var statusLower = String(status).toLowerCase().trim();
@@ -537,7 +540,7 @@ function buildManagerMetricBuckets_(csvRows, managerRoster) {
     );
     var managerEmail = String(managerInfo.managerEmail || '').toLowerCase().trim();
 
-    if (!managerEmail || isBlockedJohnRiordanEmail_(managerEmail)) {
+    if (!managerInfo.managerName || !managerEmail || isBlockedManagerForReporting_(managerInfo.managerName, managerEmail)) {
       return;
     }
 
@@ -788,7 +791,6 @@ function buildPeakCadenceEmailRows_(spreadsheet, csvRows, managerRoster, runSett
     if (isRemovedRepForEmail_(removalLookup, repEmail, repName)) return;
 
     var salesGroup = getValue_(offerRow, 'Sales Group') || '';
-    var managerNameFromOffer = getValue_(offerRow, 'Manager') || getValue_(offerRow, 'Manager Name') || '';
     var sims = String(getValue_(offerRow, 'Sims') || getValue_(offerRow, 'Sims CSV') || '')
       .split(',')
       .map(function(value) { return value.trim(); })
@@ -822,7 +824,9 @@ function buildPeakCadenceEmailRows_(spreadsheet, csvRows, managerRoster, runSett
       var csvRepName = csvRow ? getValue_(csvRow, 'User Name') : '';
       var csvJourneyName = csvRow ? getJourneyNameForRow_(csvRow, runSettings || {}) : '';
       var managerInfo = getManagerInfoForRep_(managerRoster, repEmail, csvRepName || repName);
-      var managerName = normalizeManagerDisplayName_(managerInfo.managerName || managerNameFromOffer || 'Unassigned');
+      if (!managerInfo.managerName) return;
+
+      var managerName = normalizeManagerDisplayName_(managerInfo.managerName);
       var managerEmail = String(managerInfo.managerEmail || emailFromName_(managerName) || '').toLowerCase().trim();
 
       if (isBlockedManagerForReporting_(managerName, managerEmail)) return;
@@ -1055,7 +1059,40 @@ function isCompletedStatus_(status) {
 }
 
 function isBlockedManagerForReporting_(managerName, managerEmail) {
-  return isJohnRiordanName_(managerName) || isBlockedJohnRiordanEmail_(managerEmail);
+  return isJohnRiordanName_(managerName) ||
+    isBlockedJohnRiordanEmail_(managerEmail) ||
+    isMarkDefrancoName_(managerName) ||
+    isBlockedMarkDefrancoEmail_(managerEmail) ||
+    isUnassignedManagerName_(managerName);
+}
+
+function isMarkDefrancoName_(value) {
+  var normalized = normalizePersonKey_(value);
+  return [
+    'mark defranco',
+    'mark de franco',
+    'mark defranko',
+    'mark de franko'
+  ].indexOf(normalized) !== -1;
+}
+
+function isBlockedMarkDefrancoEmail_(email) {
+  var normalized = normalizePersonKey_(String(email || '').split('@')[0]);
+  return isMarkDefrancoName_(normalized);
+}
+
+function isUnassignedManagerName_(value) {
+  var normalized = normalizePersonKey_(value);
+  return !normalized || [
+    'unassigned',
+    'unassigned manager',
+    'missing',
+    'missing manager',
+    'no manager',
+    'none',
+    'na',
+    'n a'
+  ].indexOf(normalized) !== -1;
 }
 
 function isRemovedRepForEmail_(removalLookup, email, name) {
@@ -1424,7 +1461,7 @@ function buildDirectorRecap_(csvRows, managerRoster, runSettings) {
     var userEmail = getValue_(row, 'User Email');
     var managerInfo = getManagerInfoForRep_(managerRoster, userEmail, userName);
 
-    if (!managerInfo.managerName) {
+    if (!managerInfo.managerName || isBlockedManagerForReporting_(managerInfo.managerName, managerInfo.managerEmail)) {
       return;
     }
 
@@ -1922,7 +1959,7 @@ function buildSeniorLeadershipRecap_(csvRows, managerRoster, runSettings) {
     var category = classifySimulationOutcome_(status, score);
     var managerInfo = getManagerInfoForRep_(managerRoster, userEmail, userName);
 
-    if (!managerInfo.managerName) {
+    if (!managerInfo.managerName || isBlockedManagerForReporting_(managerInfo.managerName, managerInfo.managerEmail)) {
       return;
     }
 
