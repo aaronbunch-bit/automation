@@ -817,12 +817,14 @@ function buildPeakCadenceEmailRows_(spreadsheet, csvRows, managerRoster, runSett
       seen[dedupeKey] = true;
 
       var csvRow = findCsvRowForAssignedSim_(getCsvCandidatesForOffer_(csvLookup, repEmail, repName), simName);
-      var csvStatus = csvRow ? getValue_(csvRow, 'Status') : 'Not Started';
-      var score = csvRow ? parseScore_(getValue_(csvRow, 'Best Score (%)')) : NaN;
+      if (!csvRow) return;
+
+      var csvStatus = getValue_(csvRow, 'Status');
+      var score = parseScore_(getValue_(csvRow, 'Best Score (%)'));
       var displayStatus = isEscalated && !isCompletedStatus_(csvStatus) ? 'Escalated' : csvStatus;
       var category = classifySimulationOutcome_(displayStatus, score);
-      var csvRepName = csvRow ? getValue_(csvRow, 'User Name') : '';
-      var csvJourneyName = csvRow ? getJourneyNameForRow_(csvRow, runSettings || {}) : '';
+      var csvRepName = getValue_(csvRow, 'User Name');
+      var csvJourneyName = getJourneyNameForRow_(csvRow, runSettings || {});
       var managerInfo = getManagerInfoForRep_(managerRoster, repEmail, csvRepName || repName);
       if (!managerInfo.managerName) return;
 
