@@ -44,15 +44,16 @@ var TEST_EMAIL_RECIPIENTS = [
 
 var DIRECTOR_EMAIL_RECIPIENTS = [
   'joshua.langford@varsitytutors.com',
-  'taylor.wisnasky@varsitytutors.com',
-  'aaron.bunch@varsitytutors.com'
+  'aaron.bunch@varsitytutors.com',
+  'aftynn.peters@varsitytutors.com',
+  'taylor.wisnasky@varsitytutors.com'
 ];
 
 var SENIOR_LEADER_SUPERGROUP_RECIPIENTS = [
   {
     supergroupName: 'Prof Certs',
-    leaderName: 'Yago Lupi',
-    email: 'yago.lupi@varsitytutors.com'
+    leaderName: 'Taylor Wisnasky',
+    email: 'taylor.wisnasky@varsitytutors.com'
   },
   {
     supergroupName: 'ELD',
@@ -61,8 +62,8 @@ var SENIOR_LEADER_SUPERGROUP_RECIPIENTS = [
   },
   {
     supergroupName: 'High School',
-    leaderName: 'Aftynn Peters',
-    email: 'aftynn.peters@varsitytutors.com'
+    leaderName: 'Aaron Bunch',
+    email: 'aaron.bunch@varsitytutors.com'
   },
   {
     supergroupName: 'College',
