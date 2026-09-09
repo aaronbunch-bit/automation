@@ -421,7 +421,7 @@ function sendManagerEmailBatches_(testMode) {
   if (!assignedRows.length) {
     SpreadsheetApp.getUi().alert(
       'No peak-cadence assignments found.\n\n' +
-      'Manager emails now report TS Offers rows with Status = BOOKED or ESCALATED for the current/prior Weekly Sim Schedule weeks.'
+      'Manager emails now report current CSV rows whose sims appear in current/prior Weekly Sim Schedule weeks.'
     );
     return;
   }
@@ -602,7 +602,7 @@ function sendSeniorLeadershipRecaps_(testMode) {
   if (!assignedRows.length) {
     SpreadsheetApp.getUi().alert(
       'No peak-cadence assignments found.\n\n' +
-      'Senior leader emails now report TS Offers rows with Status = BOOKED or ESCALATED for the current/prior Weekly Sim Schedule weeks.'
+      'Senior leader emails now report current CSV rows whose sims appear in current/prior Weekly Sim Schedule weeks.'
     );
     return;
   }
@@ -770,104 +770,71 @@ function getSeniorLeaderRecipients_(spreadsheet) {
 
 function buildPeakCadenceEmailRows_(spreadsheet, csvRows, managerRoster, runSettings) {
   var scheduleIndex = buildWeeklyAssignmentScheduleIndex_(spreadsheet);
-  var csvLookup = buildCsvRowsLookup_(csvRows);
   var removalLookup = buildRemovedRepLookup_(spreadsheet);
-  var offerRows = readSheetRows_(spreadsheet, 'TS Offers');
+  var offerIndex = buildPeakOfferAssignmentIndex_(spreadsheet, scheduleIndex);
   var rows = [];
   var seen = {};
   var now = new Date();
   var currentDayEnd = new Date(now.getTime());
   currentDayEnd.setHours(23, 59, 59, 999);
 
-  offerRows.forEach(function(offerRow) {
-    var status = String(getValue_(offerRow, 'Status') || '').trim().toUpperCase();
-    var isEscalated = status === 'ESCALATED';
-    if (status !== 'BOOKED' && !isEscalated) return;
-    if (tsOfferRowInactiveForEmail_(offerRow)) return;
-
-    var repEmail = String(getFirstNonBlankValue_(offerRow, [
-      'Consultant Email',
-      'Email',
-      'Representative Email',
-      'Rep Email',
-      'User Email'
-    ]) || '').toLowerCase().trim();
-    var repName = getFirstNonBlankValue_(offerRow, [
-      'Consultant',
-      'Consultant Name',
-      'Representative',
-      'Representative Name',
-      'Rep',
-      'User Name'
-    ]) || '';
+  csvRows.forEach(function(csvRow) {
+    var repEmail = String(getValue_(csvRow, 'User Email') || '').toLowerCase().trim();
+    var repName = getValue_(csvRow, 'User Name') || '';
     if (isRemovedRepForEmail_(removalLookup, repEmail, repName)) return;
 
-    var salesGroup = getValue_(offerRow, 'Sales Group') || '';
-    var sims = String(getValue_(offerRow, 'Sims') || getValue_(offerRow, 'Sims CSV') || '')
-      .split(',')
-      .map(function(value) { return value.trim(); })
-      .filter(Boolean);
-    var bookedWindow = getValue_(offerRow, 'Booked Window');
-    var createdAt = getValue_(offerRow, 'Created At') || getValue_(offerRow, 'Offer Sent At');
-    var bookedStart = parseBookedWindowStart_(bookedWindow) || parsePeakDate_(createdAt);
+    var csvJourneyName = getJourneyNameForRow_(csvRow, runSettings || {});
+    var salesGroup = deriveSupergroupName_(csvJourneyName);
+    var simulationName = getValue_(csvRow, 'Simulation Name') || 'Unknown Simulation';
+    var assignment = findWeeklyAssignmentForCsvRow_(scheduleIndex, salesGroup, simulationName, currentDayEnd);
+    if (!assignment) return;
 
-    sims.forEach(function(simName) {
-      var assignment = findWeeklyAssignmentForOffer_(scheduleIndex, salesGroup, simName, bookedStart);
-      var dueWeekStart = assignment && assignment.weekStart
-        ? assignment.weekStart
-        : peakWeekStartFromDate_(bookedStart);
+    var managerInfo = getManagerInfoForRep_(managerRoster, repEmail, repName);
+    if (!managerInfo.managerName) return;
 
-      if (dueWeekStart && dueWeekStart.getTime() > currentDayEnd.getTime()) return;
+    var managerName = normalizeManagerDisplayName_(managerInfo.managerName);
+    var managerEmail = String(managerInfo.managerEmail || emailFromName_(managerName) || '').toLowerCase().trim();
+    if (isBlockedManagerForReporting_(managerName, managerEmail)) return;
 
-      var dedupeKey = [
-        repEmail || normalizePersonKey_(repName),
-        peakNormalizeSimulationName_(simName),
-        String(bookedWindow || ''),
-        dueWeekStart ? dueWeekStart.getTime() : ''
-      ].join('|');
-      if (seen[dedupeKey]) return;
-      seen[dedupeKey] = true;
+    var offerMatch = findPeakOfferAssignment_(offerIndex, repEmail, repName, salesGroup, assignment);
+    var isEscalated = offerMatch && offerMatch.status === 'ESCALATED';
+    var csvStatus = getValue_(csvRow, 'Status');
+    var score = parseScore_(getValue_(csvRow, 'Best Score (%)'));
+    var displayStatus = isEscalated && !isCompletedStatus_(csvStatus) ? 'Escalated' : csvStatus;
+    var category = classifySimulationOutcome_(displayStatus, score);
+    var bookedStart = offerMatch ? offerMatch.bookedStart : null;
 
-      var csvRow = findCsvRowForAssignedSim_(getCsvCandidatesForOffer_(csvLookup, repEmail, repName), simName);
-      if (!csvRow) return;
+    var dedupeKey = [
+      repEmail || normalizePersonKey_(repName),
+      assignment.groupKey,
+      assignment.simKey,
+      assignment.weekStart.getTime()
+    ].join('|');
+    if (seen[dedupeKey]) return;
+    seen[dedupeKey] = true;
 
-      var csvStatus = getValue_(csvRow, 'Status');
-      var score = parseScore_(getValue_(csvRow, 'Best Score (%)'));
-      var displayStatus = isEscalated && !isCompletedStatus_(csvStatus) ? 'Escalated' : csvStatus;
-      var category = classifySimulationOutcome_(displayStatus, score);
-      var csvRepName = getValue_(csvRow, 'User Name');
-      var csvJourneyName = getJourneyNameForRow_(csvRow, runSettings || {});
-      var managerInfo = getManagerInfoForRep_(managerRoster, repEmail, csvRepName || repName);
-      if (!managerInfo.managerName) return;
-
-      var managerName = normalizeManagerDisplayName_(managerInfo.managerName);
-      var managerEmail = String(managerInfo.managerEmail || emailFromName_(managerName) || '').toLowerCase().trim();
-
-      if (isBlockedManagerForReporting_(managerName, managerEmail)) return;
-
-      rows.push({
-        repName: csvRepName || repName || repEmail,
-        repEmail: repEmail,
-        managerName: managerName,
-        managerEmail: managerEmail,
-        seniorName: managerInfo.seniorName || '',
-        seniorEmail: managerInfo.seniorEmail || '',
-        salesGroup: salesGroup,
-        supergroupName: deriveSupergroupName_(csvJourneyName || salesGroup),
-        journeyName: csvJourneyName || salesGroup,
-        simulationName: simName,
-        assignedSimulationName: assignment && assignment.simulationName ? assignment.simulationName : simName,
-        dueWeekStart: dueWeekStart,
-        dueWeekLabel: formatWeekLabel_(dueWeekStart),
-        dateAssigned: bookedStart,
-        dateAssignedLabel: (isEscalated ? 'Escalated ' : '') + formatAssignedDate_(bookedStart, bookedWindow || createdAt),
-        status: displayStatus || 'Not Started',
-        score: isNaN(score) ? '' : score / 100,
-        scorePercent: score,
-        category: category,
-        escalated: isEscalated,
-        overdue: !!(!isEscalated && bookedStart && bookedStart.getTime() < now.getTime() && !isCompletedStatus_(csvStatus))
-      });
+    rows.push({
+      repName: repName || repEmail,
+      repEmail: repEmail,
+      managerName: managerName,
+      managerEmail: managerEmail,
+      seniorName: managerInfo.seniorName || '',
+      seniorEmail: managerInfo.seniorEmail || '',
+      salesGroup: salesGroup,
+      supergroupName: assignment.supergroup || salesGroup,
+      journeyName: csvJourneyName || salesGroup,
+      simulationName: simulationName,
+      assignedSimulationName: assignment.simulationName || simulationName,
+      dueWeekStart: assignment.weekStart,
+      dueWeekLabel: formatWeekLabel_(assignment.weekStart),
+      dateAssigned: bookedStart,
+      dateAssignedLabel: offerMatch ? (isEscalated ? 'Escalated ' : '') + formatAssignedDate_(bookedStart, offerMatch.bookedWindow || offerMatch.createdAt) : '',
+      status: displayStatus || 'Not Started',
+      score: isNaN(score) ? '' : score / 100,
+      scorePercent: score,
+      category: category,
+      escalated: !!isEscalated,
+      overdue: !!(offerMatch && !isEscalated && bookedStart && bookedStart.getTime() < now.getTime() && !isCompletedStatus_(csvStatus))
     });
   });
 
@@ -922,6 +889,118 @@ function findWeeklyAssignmentForOffer_(scheduleIndex, salesGroup, simName, booke
   }
 
   return candidates[0];
+}
+
+function findWeeklyAssignmentForCsvRow_(scheduleIndex, salesGroup, simName, currentDayEnd) {
+  var groupKey = peakSalesGroupKey_(salesGroup);
+  var simKey = peakNormalizeSimulationName_(simName);
+  var candidates = scheduleIndex.rows.filter(function(item) {
+    return item.groupKey === groupKey &&
+      item.weekStart.getTime() <= currentDayEnd.getTime() &&
+      (item.simKey === simKey || peakSimulationNamesMatch_(item.simulationName, simName));
+  });
+  if (!candidates.length) return null;
+
+  candidates.sort(function(a, b) {
+    return b.weekStart.getTime() - a.weekStart.getTime();
+  });
+
+  return candidates[0];
+}
+
+function buildPeakOfferAssignmentIndex_(spreadsheet, scheduleIndex) {
+  var offerRows = readSheetRows_(spreadsheet, 'TS Offers');
+  var index = {};
+
+  offerRows.forEach(function(offerRow) {
+    var status = String(getValue_(offerRow, 'Status') || '').trim().toUpperCase();
+    if (status !== 'BOOKED' && status !== 'ESCALATED') return;
+    if (tsOfferRowInactiveForEmail_(offerRow)) return;
+
+    var repEmail = String(getFirstNonBlankValue_(offerRow, [
+      'Consultant Email',
+      'Email',
+      'Representative Email',
+      'Rep Email',
+      'User Email'
+    ]) || '').toLowerCase().trim();
+    var repName = getFirstNonBlankValue_(offerRow, [
+      'Consultant',
+      'Consultant Name',
+      'Representative',
+      'Representative Name',
+      'Rep',
+      'User Name'
+    ]) || '';
+    var salesGroup = getValue_(offerRow, 'Sales Group') || '';
+    var bookedWindow = getValue_(offerRow, 'Booked Window');
+    var createdAt = getValue_(offerRow, 'Created At') || getValue_(offerRow, 'Offer Sent At');
+    var bookedStart = parseBookedWindowStart_(bookedWindow) || parsePeakDate_(createdAt);
+
+    String(getValue_(offerRow, 'Sims') || getValue_(offerRow, 'Sims CSV') || '')
+      .split(',')
+      .map(function(value) { return value.trim(); })
+      .filter(Boolean)
+      .forEach(function(simName) {
+        var assignment = findWeeklyAssignmentForOffer_(scheduleIndex, salesGroup, simName, bookedStart);
+        var weekStart = assignment && assignment.weekStart ? assignment.weekStart : peakWeekStartFromDate_(bookedStart);
+        var offerItem = {
+          status: status,
+          repEmail: repEmail,
+          repName: repName,
+          groupKey: peakSalesGroupKey_(salesGroup),
+          simKey: peakNormalizeSimulationName_(simName),
+          weekStart: weekStart,
+          bookedStart: bookedStart,
+          bookedWindow: bookedWindow,
+          createdAt: createdAt
+        };
+        peakOfferKeys_(offerItem).forEach(function(key) {
+          if (!index[key] || peakOfferSortTime_(offerItem) > peakOfferSortTime_(index[key])) {
+            index[key] = offerItem;
+          }
+        });
+      });
+  });
+
+  return index;
+}
+
+function findPeakOfferAssignment_(offerIndex, repEmail, repName, salesGroup, assignment) {
+  var keys = [
+    peakOfferKey_(String(repEmail || '').toLowerCase().trim(), assignment.groupKey, assignment.simKey, assignment.weekStart),
+    peakOfferKey_(normalizePersonKey_(repName), assignment.groupKey, assignment.simKey, assignment.weekStart)
+  ];
+
+  for (var i = 0; i < keys.length; i++) {
+    if (offerIndex[keys[i]]) return offerIndex[keys[i]];
+  }
+
+  return null;
+}
+
+function peakOfferKeys_(offerItem) {
+  var keys = [];
+  if (offerItem.repEmail) {
+    keys.push(peakOfferKey_(offerItem.repEmail, offerItem.groupKey, offerItem.simKey, offerItem.weekStart));
+  }
+  if (offerItem.repName) {
+    keys.push(peakOfferKey_(normalizePersonKey_(offerItem.repName), offerItem.groupKey, offerItem.simKey, offerItem.weekStart));
+  }
+  return keys;
+}
+
+function peakOfferKey_(repKey, groupKey, simKey, weekStart) {
+  return [
+    repKey || '',
+    groupKey || '',
+    simKey || '',
+    weekStart ? weekStart.getTime() : ''
+  ].join('|');
+}
+
+function peakOfferSortTime_(offerItem) {
+  return offerItem && offerItem.bookedStart ? offerItem.bookedStart.getTime() : 0;
 }
 
 function buildCsvRowsLookup_(csvRows) {
@@ -1351,7 +1430,7 @@ function sendDirectorEmail_(recipients, testMode) {
   if (!assignedRows.length) {
     SpreadsheetApp.getUi().alert(
       'No peak-cadence assignments found.\n\n' +
-      'Director emails now report TS Offers rows with Status = BOOKED or ESCALATED for the current/prior Weekly Sim Schedule weeks.'
+      'Director emails now report current CSV rows whose sims appear in current/prior Weekly Sim Schedule weeks.'
     );
     return;
   }
