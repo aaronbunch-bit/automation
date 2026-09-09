@@ -8,8 +8,8 @@ var MISSING_LOOKER_PAIRINGS_SHEET_NAME = 'Missing Looker Manager Pairing';
 var EXCEPTION_SHEET_NAME = 'Simulation Exceptions';
 var RUN_LOG_SHEET_NAME = 'Run Log';
 var RUN_SETTINGS_SHEET_NAME = 'Run Settings';
-var LOOKER_MANAGER_SOURCE_SPREADSHEET_ID = '1a6bE3cI-98tbAMyGizZwrsj3pQJdwXd1GMf5oxmFHUo';
-var LOOKER_MANAGER_SOURCE_RANGE = "'Sales Roster Update.csv'!A:G";
+var LOOKER_MANAGER_SOURCE_SPREADSHEET_ID = '1Mj5bLfdC3fVhn41I82g15CpoPL-pA-CpMp97FTctfzc';
+var LOOKER_MANAGER_SOURCE_RANGE = 'B:D';
 
 var PASSING_SCORE_PERCENT = 80;
 var DEFAULT_JOURNEY_NAME = 'High School Year Round Workshops - Jun';
@@ -97,12 +97,9 @@ var CSV_DUMP_HEADERS = [
 ];
 
 var LOOKER_MANAGER_LOOKUP_HEADERS = [
-  'Manager ID',
-  'Manager',
-  'Regional Director',
-  'Work Group',
-  'Sub Group',
-  'Group'
+  'Rep Name',
+  'Rep Id',
+  'Rep Manager'
 ];
 
 var MISSING_LOOKER_PAIRINGS_HEADERS = [
@@ -259,7 +256,7 @@ function connectLookerManagerImport() {
 
   sheet.clear();
   sheet.getRange('A1').setFormula(formula);
-  sheet.autoResizeColumns(1, 7);
+  sheet.autoResizeColumns(1, LOOKER_MANAGER_LOOKUP_HEADERS.length);
 
   SpreadsheetApp.getUi().alert(
     'Looker manager import formula added to "' + LOOKER_MANAGER_LOOKUP_SHEET_NAME + '".\n\n' +
@@ -1065,7 +1062,27 @@ function isBlockedManagerForReporting_(managerName, managerEmail) {
     isBlockedJohnRiordanEmail_(managerEmail) ||
     isMarkDefrancoName_(managerName) ||
     isBlockedMarkDefrancoEmail_(managerEmail) ||
+    isIgnoredManagerName_(managerName) ||
+    isIgnoredManagerEmail_(managerEmail) ||
     isUnassignedManagerName_(managerName);
+}
+
+function isIgnoredManagerName_(value) {
+  var normalized = normalizePersonKey_(value);
+  return [
+    'billy vorgias',
+    'john paul riordan',
+    'johnpaul riordan',
+    'john riordan',
+    'ashley roos',
+    'margaret etzel',
+    'ronaldo felix',
+    'tamaira kaster'
+  ].indexOf(normalized) !== -1;
+}
+
+function isIgnoredManagerEmail_(email) {
+  return isIgnoredManagerName_(String(email || '').split('@')[0]);
 }
 
 function isMarkDefrancoName_(value) {
@@ -2432,13 +2449,25 @@ function buildLookerManagerRoster_(spreadsheet) {
   var seniorRoster = buildManagerRosterSeniorLookup_(spreadsheet);
 
   rows.forEach(function(row) {
-    var repName = getValue_(row, 'Manager');
+    var repName = getFirstNonBlankValue_(row, [
+      'Rep Name',
+      'Representative Name',
+      'User Name',
+      'Name',
+      'Manager'
+    ]);
     var repEmail = getFirstNonBlankValue_(row, [
+      'Rep Email',
+      'Representative Email',
+      'User Email',
       'Email',
       'Employee Email',
       'Manager Email'
     ]);
     var managerName = getFirstNonBlankValue_(row, [
+      'Rep Manager',
+      'Representative Manager',
+      'Manager Name',
       'Regional Director',
       'Regional Directo',
       'Regional Dir',
