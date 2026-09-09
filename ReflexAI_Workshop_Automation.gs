@@ -31,6 +31,8 @@ var TAKE_RATE_ESCALATED_COLOR = '#ffcc33';
 var TAKE_RATE_OFFERED_COLOR = '#ff3ec8';
 
 var EMAIL_NAME_OVERRIDES = {
+  'angie damon': 'angela.damon@varsitytutors.com',
+  'angela damon': 'angela.damon@varsitytutors.com',
   'john wright ii': 'john.wright@varsitytutors.com',
   'jennifer volugamore': 'jen.vulgamore@varsitytutors.com',
   'jennifer vulgamore': 'jen.vulgamore@varsitytutors.com'
