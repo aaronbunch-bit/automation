@@ -40,51 +40,79 @@ function setupWeeklyAssignedScheduling() {
 }
 
 function testWeeklyAssignedScheduling() {
-  runWeeklyAssignedScheduling_(true, '');
+  runWeeklyAssignedScheduling_(true, '', 'NEXT');
 }
 
 function runWeeklyAssignedScheduling() {
-  runWeeklyAssignedScheduling_(false, '');
+  runWeeklyAssignedScheduling_(false, '', 'NEXT');
 }
 
 function runWeeklyAssignedSchedulingAllSupergroups() {
-  runWeeklyAssignedScheduling_(false, '');
+  runWeeklyAssignedScheduling_(false, '', 'NEXT');
 }
 
 function runWeeklyAssignedSchedulingAdultLearning() {
-  runWeeklyAssignedScheduling_(false, 'Adult Learning');
+  runWeeklyAssignedScheduling_(false, 'Adult Learning', 'NEXT');
 }
 
 function runWeeklyAssignedSchedulingCollege() {
-  runWeeklyAssignedScheduling_(false, 'College');
+  runWeeklyAssignedScheduling_(false, 'College', 'NEXT');
 }
 
 function runWeeklyAssignedSchedulingELD() {
-  runWeeklyAssignedScheduling_(false, 'ELD');
+  runWeeklyAssignedScheduling_(false, 'ELD', 'NEXT');
 }
 
 function runWeeklyAssignedSchedulingHighSchool() {
-  runWeeklyAssignedScheduling_(false, 'High School');
+  runWeeklyAssignedScheduling_(false, 'High School', 'NEXT');
 }
 
 function runWeeklyAssignedSchedulingProfCerts() {
-  runWeeklyAssignedScheduling_(false, 'Prof Certs');
+  runWeeklyAssignedScheduling_(false, 'Prof Certs', 'NEXT');
 }
 
-function runWeeklyAssignedScheduling_(testMode, salesGroupFilter) {
+function runCurrentWeeklyAssignedSchedulingAllSupergroups() {
+  runWeeklyAssignedScheduling_(false, '', 'CURRENT');
+}
+
+function runCurrentWeeklyAssignedSchedulingAdultLearning() {
+  runWeeklyAssignedScheduling_(false, 'Adult Learning', 'CURRENT');
+}
+
+function runCurrentWeeklyAssignedSchedulingCollege() {
+  runWeeklyAssignedScheduling_(false, 'College', 'CURRENT');
+}
+
+function runCurrentWeeklyAssignedSchedulingELD() {
+  runWeeklyAssignedScheduling_(false, 'ELD', 'CURRENT');
+}
+
+function runCurrentWeeklyAssignedSchedulingHighSchool() {
+  runWeeklyAssignedScheduling_(false, 'High School', 'CURRENT');
+}
+
+function runCurrentWeeklyAssignedSchedulingProfCerts() {
+  runWeeklyAssignedScheduling_(false, 'Prof Certs', 'CURRENT');
+}
+
+function runWeeklyAssignedScheduling_(testMode, salesGroupFilter, weekMode) {
   var ss = tsGetSpreadsheet_();
   var config = tsLoadConfig_();
-  var weekStart = tsWeeklyTargetWeekStart_(new Date());
+  var normalizedWeekMode = String(weekMode || 'NEXT').toUpperCase() === 'CURRENT' ? 'CURRENT' : 'NEXT';
+  var weekStart = normalizedWeekMode === 'CURRENT'
+    ? tsWeeklyCurrentWeekStart_(new Date())
+    : tsWeeklyTargetWeekStart_(new Date());
   var weekStartKey = Utilities.formatDate(weekStart, TS.TZ, 'yyyy-MM-dd');
   var assignments = tsLoadWeeklyAssignments_(ss, weekStartKey);
   var normalizedSalesGroupFilter = String(salesGroupFilter || '').trim();
   var normalizedSalesGroupKey = tsWeeklySalesGroupKey_(normalizedSalesGroupFilter);
   var batchLabel = normalizedSalesGroupFilter || 'All Supergroups';
+  var weekModeLabel = normalizedWeekMode === 'CURRENT' ? 'Current Week' : 'Next Week';
 
   if (!Object.keys(assignments).length) {
     SpreadsheetApp.getUi().alert(
       'Weekly Assigned Scheduling',
-      'No Weekly Sim Schedule rows found for week start ' + weekStartKey + '.',
+      'No Weekly Sim Schedule rows found for ' + weekModeLabel + ' week start ' + weekStartKey + '.',
       SpreadsheetApp.getUi().ButtonSet.OK
     );
     return;
@@ -93,7 +121,7 @@ function runWeeklyAssignedScheduling_(testMode, salesGroupFilter) {
   if (normalizedSalesGroupFilter && !assignments[normalizedSalesGroupKey]) {
     SpreadsheetApp.getUi().alert(
       'Weekly Assigned Scheduling',
-      'No Weekly Sim Schedule row found for ' + normalizedSalesGroupFilter + ' and week start ' + weekStartKey + '.',
+      'No Weekly Sim Schedule row found for ' + normalizedSalesGroupFilter + ' and ' + weekModeLabel + ' week start ' + weekStartKey + '.',
       SpreadsheetApp.getUi().ButtonSet.OK
     );
     return;
@@ -136,7 +164,7 @@ function runWeeklyAssignedScheduling_(testMode, salesGroupFilter) {
     tsAudit_(
       'WEEKLY_ASSIGNED_DIAG',
       batchLabel,
-      'No eligible weekly reps for week ' + weekStartKey +
+      'No eligible weekly reps for ' + weekModeLabel + ' week ' + weekStartKey +
         '; assignedSim=' + (assignments[normalizedSalesGroupKey] || 'Multiple/none') +
         '; loadedNeeds=' + needs.length +
         '; groupNeeds=' + groupNeedCount +
@@ -146,7 +174,7 @@ function runWeeklyAssignedScheduling_(testMode, salesGroupFilter) {
     );
     SpreadsheetApp.getUi().alert(
       'Weekly Assigned Scheduling',
-      'No reps matched the assigned weekly simulation for ' + batchLabel + ' and week start ' + weekStartKey + '.\n\n' +
+      'No reps matched the assigned weekly simulation for ' + batchLabel + ' and ' + weekModeLabel + ' week start ' + weekStartKey + '.\n\n' +
         'Loaded needs in this group: ' + groupNeedCount + '\n' +
         'Assigned sim: ' + (assignments[normalizedSalesGroupKey] || 'See Weekly Sim Schedule') + '\n\n' +
         'Check TS Audit for sample sim names from the CSV.',
@@ -244,7 +272,7 @@ function runWeeklyAssignedScheduling_(testMode, salesGroupFilter) {
 
   SpreadsheetApp.getUi().alert(
     'Weekly Assigned Scheduling',
-    (testMode ? 'Test run complete for ' : 'Live run complete for ') + batchLabel + '.\n\n' +
+    (testMode ? 'Test run complete for ' : 'Live run complete for ') + batchLabel + ' (' + weekModeLabel + ').\n\n' +
       'Eligible reps: ' + eligibleNeeds.length + '\n' +
       'Processed: ' + processed + '\n' +
       'Booked: ' + booked + '\n' +
@@ -405,6 +433,13 @@ function tsWeeklyTargetWeekStart_(today) {
   var daysUntilSunday = (7 - day) % 7;
   if (daysUntilSunday === 0 && day !== 0) daysUntilSunday = 7;
   d.setDate(d.getDate() + daysUntilSunday);
+  return d;
+}
+
+function tsWeeklyCurrentWeekStart_(today) {
+  var d = new Date(today.getTime());
+  d.setHours(0, 0, 0, 0);
+  d.setDate(d.getDate() - d.getDay());
   return d;
 }
 
