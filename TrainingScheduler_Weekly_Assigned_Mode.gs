@@ -649,9 +649,17 @@ function tsWeeklyOfferRowMatchesNeed_(row, need) {
   if (!weekStart) return false;
   var weekEnd = new Date(weekStart.getTime() + 7 * 24 * 60 * 60 * 1000);
   var bookedWindow = String(row[TS.OFFER_COLS.BOOKED_WINDOW - 1] || '').trim();
-  var bookedDate = tsBuildDateTime_(bookedWindow.substring(0, 10), '00:00');
+  var windowParts = tsWeeklyBookedWindowParts_(bookedWindow);
+  var bookedDate = tsBuildDateTime_(windowParts.dateStr || bookedWindow.substring(0, 10), '00:00');
+  var bookedStart = windowParts.startStr
+    ? tsBuildDateTime_(windowParts.dateStr, windowParts.startStr)
+    : bookedDate;
 
-  return !!bookedDate && bookedDate >= weekStart && bookedDate < weekEnd;
+  if (!bookedDate || bookedDate < weekStart || bookedDate >= weekEnd) return false;
+
+  // If the scheduled block has already passed and the rep still appears in the
+  // needs list, allow the current-week catch-up run to find a new slot.
+  return !!bookedStart && bookedStart.getTime() >= new Date().getTime();
 }
 
 function tsBookWeeklyAssignedWindow_(headers, need, window) {
