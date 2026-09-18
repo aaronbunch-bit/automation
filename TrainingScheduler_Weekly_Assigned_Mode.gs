@@ -663,7 +663,7 @@ function tsWeeklyOfferRowMatchesNeed_(row, need) {
 }
 
 function tsBookWeeklyAssignedWindow_(headers, need, window) {
-  var description = 'Weekly Reflex-AI Sim: ' + need.sims.join(', ');
+  var description = tsMandatoryAssembledDescription_('Weekly Reflex-AI Sim: ' + need.sims.join(', '));
   var commit = tsCommitTrainingToAssembled_(headers, need.email, need.name, window.start, window.end, description, 'weekly-assigned');
   if (!commit.ok) {
     tsAudit_('WEEKLY_ASSIGNED', need.email, 'Assembled commit failed', 'FAILED');
@@ -682,6 +682,12 @@ function tsBookWeeklyAssignedWindow_(headers, need, window) {
   tsSlackDmConsultant_(need.name, need.email, tsBuildWeeklyAssignedSlackMessage_(need, window, false));
   tsAudit_('WEEKLY_ASSIGNED', need.email, 'Booked weekly assigned sim ' + need.sims.join(', ') + ' at ' + window.dateStr + ' ' + window.startStr, 'OK');
   return true;
+}
+
+function tsMandatoryAssembledDescription_(description) {
+  var value = String(description || '').trim();
+  if (value.toLowerCase().indexOf('[mandatory]') !== -1) return value;
+  return '[Mandatory] ' + value;
 }
 
 function tsSendWeeklyAssignedTestMessage_(need, window) {
