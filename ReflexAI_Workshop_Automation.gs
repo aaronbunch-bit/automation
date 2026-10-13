@@ -39,7 +39,7 @@ var EMAIL_NAME_OVERRIDES = {
 };
 
 var TEST_EMAIL_RECIPIENTS = [
-  'aaron.bunch@varsitytutors.com'
+  'liz.weiss@varsitytutors.com'
 ];
 
 var DIRECTOR_EMAIL_RECIPIENTS = [

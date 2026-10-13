@@ -110,7 +110,7 @@ function onOpen() {
   SpreadsheetApp.getUi()
     .createMenu('ReflexAI Reporting')
     .addItem('Run report from CSV dump now', 'runWeeklySimulationExceptionReport')
-    .addItem('Test email batches to Aaron/Robert', 'sendTestManagerExceptionEmails')
+    .addItem('Test email batches to Liz/Robert', 'sendTestManagerExceptionEmails')
     .addItem('Email managers current exceptions', 'sendManagerExceptionEmails')
     .addItem('Validate configuration', 'validateConfiguration')
     .addItem('Install weekly trigger', 'installWeeklyTrigger')
@@ -283,7 +283,7 @@ function getConfig_(options) {
     passingScorePercent: passingScore,
     senderName: props.getProperty(CONFIG_KEYS.senderName) || 'ReflexAI Simulation Reporting',
     emailSubjectPrefix: props.getProperty(CONFIG_KEYS.emailSubjectPrefix) || 'ReflexAI weekly simulation follow-up',
-    testEmailRecipients: splitCsv_(props.getProperty(CONFIG_KEYS.testEmailRecipients) || 'aaron.bunch@varsitytutors.com,robert.sorrell@varsitytutors.com'),
+    testEmailRecipients: splitCsv_(props.getProperty(CONFIG_KEYS.testEmailRecipients) || 'liz.weiss@varsitytutors.com,robert.sorrell@varsitytutors.com'),
     dryRun: toBoolean_(props.getProperty(CONFIG_KEYS.dryRun), false),
     sendEmails: toBoolean_(props.getProperty(CONFIG_KEYS.sendEmails), false),
     skipValidation: options && options.skipValidation

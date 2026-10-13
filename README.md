@@ -42,13 +42,13 @@ The script creates these tabs:
 4. Replace the old CSV data with the new CSV data.
 5. Run `ReflexAI Reporting > Run report from CSV dump now`.
 6. Review `Simulation Exceptions`.
-7. Run `ReflexAI Reporting > Test email batches to Aaron/Robert` to send test
-   copies to Aaron and Robert first.
+7. Run `ReflexAI Reporting > Test Manager Email` to send test
+   copies to Liz first.
 8. Run `ReflexAI Reporting > Email managers current exceptions` when you are
    ready to email managers.
 
 The test email step sends the same manager batches to
-`aaron.bunch@varsitytutors.com` and `robert.sorrell@varsitytutors.com`, then
+`liz.weiss@varsitytutors.com`, then
 marks those rows with `Test Sent = Y`.
 
 The real email step sends one batched email per manager, not one email per row.
