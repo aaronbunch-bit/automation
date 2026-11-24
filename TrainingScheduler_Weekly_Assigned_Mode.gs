@@ -697,7 +697,7 @@ function tsBookWeeklyAssignedWindow_(headers, need, window) {
 
 function tsCommitWeeklyAssignedWindow_(headers, need, window) {
   var description = tsMandatoryAssembledDescription_('Weekly Reflex-AI Sim: ' + need.sims.join(', '));
-  var commit = tsCommitTrainingToAssembled_(headers, need.email, need.name, window.start, window.end, description, 'weekly-assigned');
+  var commit = tsCommitTrainingToAssembled_(headers, need.email, need.name, window.start, window.end, description, 'weekly-assigned', need.salesGroup);
   if (!commit.ok) {
     tsAudit_('WEEKLY_ASSIGNED', need.email, 'Assembled commit failed', 'FAILED');
     return false;
