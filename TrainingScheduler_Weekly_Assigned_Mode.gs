@@ -10,6 +10,7 @@
  * Behavior:
  * - Schedules one configured sim per rep per week.
  * - Uses a fixed 20-minute block by default.
+ * - Allows at most three overlapping blocks per audience across all simulations.
  * - Chooses the best on-shift window by capacity score, even when staffing is short.
  * - In test mode, sends the rep-facing message to aaron.bunch and does not book.
  */
@@ -190,8 +191,7 @@ function runWeeklyAssignedScheduling_(testMode, salesGroupFilter, weekMode) {
   var scheduleIdx = tsPullPhoneScheduleIndex_(headers, range.start, range.end);
   var queueCache = {};
   var slotOccupancy = tsBuildWeeklySlotOccupancy_(weekStartKey);
-  var slotCap = Number(config.WEEKLY_MAX_REPS_PER_SIM_SLOT || 3);
-  if (!isFinite(slotCap) || slotCap < 1) slotCap = 3;
+  var slotCap = tsWeeklyConcurrencyCap_(config);
   var processed = 0;
   var booked = 0;
   var testSent = 0;
@@ -473,75 +473,89 @@ function tsBuildWeeklyForecastCache_(headers, siteId, queueId, range, config) {
   return cache;
 }
 
+// The legacy config key remains supported, but cannot raise the audience cap above 3.
+function tsWeeklyConcurrencyCap_(config) {
+  var value = Number(config.WEEKLY_MAX_REPS_PER_SIM_SLOT || 3);
+  return isFinite(value) && value >= 1 ? Math.min(3, Math.floor(value)) : 3;
+}
+
 function tsBuildWeeklySlotOccupancy_(weekStartKey) {
   var occupancy = {};
   var sheet = tsGetSpreadsheet_().getSheetByName(TS.SHEETS.OFFERS);
   if (!sheet || sheet.getLastRow() < 2) return occupancy;
-
   var values = sheet.getDataRange().getValues();
   var weekStart = tsBuildDateTime_(weekStartKey, '00:00');
-  var weekEnd = weekStart ? new Date(weekStart.getTime() + 7 * 24 * 60 * 60 * 1000) : null;
+  if (!weekStart || !isFinite(weekStart.getTime())) throw new Error('Invalid scheduling week');
+  var weekEnd = new Date(weekStart.getTime());
+  weekEnd.setDate(weekEnd.getDate() + 7);
   var activeColumn = typeof tsGetOfferActiveColumn_ === 'function'
-    ? tsGetOfferActiveColumn_(sheet)
-    : 0;
+    ? tsGetOfferActiveColumn_(sheet) : 0;
 
   for (var i = 1; i < values.length; i++) {
     var row = values[i];
-    var status = String(row[TS.OFFER_COLS.STATUS - 1] || '').trim().toUpperCase();
-    if (status !== 'BOOKED') continue;
+    if (String(row[TS.OFFER_COLS.STATUS - 1] || '').trim().toUpperCase() !== 'BOOKED') continue;
     if (activeColumn && typeof tsOfferRowIsInactive_ === 'function' && tsOfferRowIsInactive_(row, activeColumn)) continue;
-
-    var bookedWindow = String(row[TS.OFFER_COLS.BOOKED_WINDOW - 1] || '').trim();
-    var windowParts = tsWeeklyBookedWindowParts_(bookedWindow);
-    if (!windowParts.dateStr || !windowParts.startStr) continue;
-
-    var bookedDate = tsBuildDateTime_(windowParts.dateStr, '00:00');
-    if (weekStart && weekEnd && (!bookedDate || bookedDate < weekStart || bookedDate >= weekEnd)) continue;
-
-    String(row[TS.OFFER_COLS.SIMS_CSV - 1] || '')
-      .split(',')
-      .map(function(sim) { return sim.trim(); })
-      .filter(Boolean)
-      .forEach(function(sim) {
-        var key = tsWeeklySlotKey_(sim, windowParts.dateStr, windowParts.startStr);
-        occupancy[key] = (occupancy[key] || 0) + 1;
-      });
+    var parts = tsWeeklyBookedWindowParts_(row[TS.OFFER_COLS.BOOKED_WINDOW - 1]);
+    // Never silently omit a booked block whose timing cannot be verified.
+    var start = parts.startStr && tsBuildDateTime_(parts.dateStr, parts.startStr);
+    if (!start || !isFinite(start.getTime())) throw new Error('Invalid booked window in TS Offers row ' + (i + 1));
+    var end = parts.endStr && tsBuildDateTime_(parts.dateStr, parts.endStr);
+    if (end && end < start) end.setDate(end.getDate() + 1);
+    if (!end) {
+      var duration = Number(row[TS.OFFER_COLS.DURATION_MIN - 1]);
+      if (isFinite(duration) && duration > 0) end = new Date(start.getTime() + duration * 60000);
+    }
+    if (!end || !isFinite(end.getTime()) || end <= start) throw new Error('Invalid booked duration in TS Offers row ' + (i + 1));
+    if (end <= weekStart || start >= weekEnd) continue;
+    tsIncrementWeeklySlotOccupancy_(occupancy, {
+      salesGroup: row[TS.OFFER_COLS.SALES_GROUP - 1]
+    }, { start: start, end: end });
   }
-
   return occupancy;
 }
 
 function tsWeeklyBookedWindowParts_(bookedWindow) {
   var raw = String(bookedWindow || '').trim();
-  var match = raw.match(/^(\d{4}-\d{2}-\d{2})\s+(\d{1,2}:\d{2})/);
-  if (!match) {
-    return {
-      dateStr: raw.substring(0, 10),
-      startStr: ''
-    };
-  }
-
-  return {
-    dateStr: match[1],
-    startStr: match[2]
-  };
+  var match = raw.match(/^(\d{4}-\d{2}-\d{2})\s+((?:[01]?\d|2[0-3]):[0-5]\d)(?:\s*[-–]\s*((?:[01]?\d|2[0-3]):[0-5]\d))?$/);
+  return match ? { dateStr: match[1], startStr: match[2], endStr: match[3] || '' }
+    : { dateStr: raw.substring(0, 10), startStr: '', endStr: '' };
 }
 
-function tsWeeklySlotCount_(occupancy, need, dateStr, startStr) {
-  return occupancy[tsWeeklySlotKey_((need.sims || [])[0], dateStr, startStr)] || 0;
+function tsWeeklyAudienceKey_(need) {
+  var key = tsWeeklySalesGroupKey_(need.salesGroup);
+  if (!key) throw new Error('Cannot verify ReflexAI capacity without an audience');
+  return 'audience:' + key;
+}
+
+// Peak simultaneous occupancy during [start, end), not the total number of
+// blocks touching the candidate. End events precede starts at the same instant.
+function tsWeeklySlotCount_(occupancy, need, start, end) {
+  if (!start || !end || !isFinite(start.getTime()) || !isFinite(end.getTime()) || end <= start) {
+    throw new Error('Invalid ReflexAI capacity window');
+  }
+  var events = [];
+  (occupancy[tsWeeklyAudienceKey_(need)] || []).forEach(function(block) {
+    if (block.start < end.getTime() && block.end > start.getTime()) {
+      events.push({ time: Math.max(block.start, start.getTime()), delta: 1 });
+      events.push({ time: Math.min(block.end, end.getTime()), delta: -1 });
+    }
+  });
+  events.sort(function(a, b) { return a.time - b.time || a.delta - b.delta; });
+  var active = 0;
+  var peak = 0;
+  events.forEach(function(event) {
+    active += event.delta;
+    peak = Math.max(peak, active);
+  });
+  return peak;
 }
 
 function tsIncrementWeeklySlotOccupancy_(occupancy, need, window) {
-  var key = tsWeeklySlotKey_((need.sims || [])[0], window.dateStr, window.startStr);
-  occupancy[key] = (occupancy[key] || 0) + 1;
-}
-
-function tsWeeklySlotKey_(simulationName, dateStr, startStr) {
-  return [
-    tsWeeklyNormalizeSimulationName_(simulationName),
-    String(dateStr || '').trim(),
-    String(startStr || '').trim()
-  ].join('|');
+  var key = tsWeeklyAudienceKey_(need);
+  // Validate before recording, and count each booking once regardless of sims.
+  tsWeeklySlotCount_({}, need, window.start, window.end);
+  if (!occupancy[key]) occupancy[key] = [];
+  occupancy[key].push({ start: window.start.getTime(), end: window.end.getTime() });
 }
 
 function tsFindBestWeeklyTrainingWindow_(forecastCache, scheduleIdx, need, consultantEmail, durationMs, config, slotOccupancy, slotCap) {
@@ -567,7 +581,7 @@ function tsFindBestWeeklyTrainingWindow_(forecastCache, scheduleIdx, need, consu
       if (slotStart.getTime() < new Date().getTime() + 2 * 60 * 60 * 1000) continue;
       if (!tsConsultantOnShiftDuringWindow_(scheduleIdx, consultantEmail, slotStart, slotEnd)) continue;
       var slotStartStr = Utilities.formatDate(slotStart, TS.TZ, 'HH:mm');
-      if (tsWeeklySlotCount_(slotOccupancy, need, dateStr, slotStartStr) >= slotCap) continue;
+      if (tsWeeklySlotCount_(slotOccupancy, need, slotStart, slotEnd) >= slotCap) continue;
 
       var minPostNet = Infinity;
       for (var j = i; j < intervals.length; j++) {
@@ -663,6 +677,25 @@ function tsWeeklyOfferRowMatchesNeed_(row, need) {
 }
 
 function tsBookWeeklyAssignedWindow_(headers, need, window) {
+  var lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    // Re-read persisted bookings under the lock: another run may have booked
+    // since candidate selection. Hold until the successful booking is recorded.
+    var occupancy = tsBuildWeeklySlotOccupancy_(need.weekStart);
+    var cap = tsWeeklyConcurrencyCap_(tsLoadConfig_());
+    if (tsWeeklySlotCount_(occupancy, need, window.start, window.end) >= cap) {
+      tsAudit_('WEEKLY_ASSIGNED', need.email, 'Audience overlap cap reached; booking skipped', 'WARN');
+      return false;
+    }
+    if (tsWeeklyAlreadyScheduled_(need)) return false;
+    return tsCommitWeeklyAssignedWindow_(headers, need, window);
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function tsCommitWeeklyAssignedWindow_(headers, need, window) {
   var description = tsMandatoryAssembledDescription_('Weekly Reflex-AI Sim: ' + need.sims.join(', '));
   var commit = tsCommitTrainingToAssembled_(headers, need.email, need.name, window.start, window.end, description, 'weekly-assigned');
   if (!commit.ok) {
@@ -729,6 +762,6 @@ function tsEnsureWeeklyConfigKeys_() {
   tsEnsureOptionalConfigKey_(sheet, 'WEEKLY_MODE_START_DATE', '2026-08-01', 'Weekly assigned mode start date');
   tsEnsureOptionalConfigKey_(sheet, 'WEEKLY_MODE_END_DATE', '2026-10-31', 'Weekly assigned mode end date');
   tsEnsureOptionalConfigKey_(sheet, 'WEEKLY_TRAINING_DURATION_MIN', '20', 'Weekly assigned training block length');
-  tsEnsureOptionalConfigKey_(sheet, 'WEEKLY_MAX_REPS_PER_SIM_SLOT', '3', 'Maximum reps assigned the same sim at the same date/time');
+  tsEnsureOptionalConfigKey_(sheet, 'WEEKLY_MAX_REPS_PER_SIM_SLOT', '3', 'Maximum simultaneous ReflexAI blocks per audience across all simulations (hard maximum 3)');
   tsEnsureOptionalConfigKey_(sheet, 'WEEKLY_TEST_SLACK_ALIAS', 'aaron.bunch', 'Slack alias for weekly assigned test messages');
 }
